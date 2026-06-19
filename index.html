@@ -210,13 +210,14 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
 .fw7{font-weight:700}.fsm{font-size:.8rem}
 .tg{color:var(--green)}.tr{color:var(--red)}.tgo{color:var(--gold)}.tb{color:var(--blue)}.tm{color:var(--muted)}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
 <header class="topbar">
   <div class="topbar-brand">
     <div class="topbar-logo">⚕️</div>
-    <div><div class="topbar-title">DoctorWealth</div><div class="topbar-sub">Dr. Chinmay Daklia · FY 2025-26</div></div>
+    <div><div class="topbar-title">DoctorWealth</div><div class="topbar-sub">Dr. Chinmay Daklia · <span id="topbar-fy-lbl" class="fy-lbl">FY 25-26</span></div></div>
   </div>
   <div class="topbar-actions">
     <button class="icon-btn" id="install-btn" onclick="openInstallGuide()" title="Install App" style="display:none">⬇️</button>
@@ -293,16 +294,51 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
     <div class="sum-pill"><div class="sp-label">Clinic+Other</div><div class="sp-val tgo" id="i-oth">Rs 0</div></div>
   </div>
 
-  <!-- TAB TOGGLE: Quick Entry vs Full Table -->
+  <!-- TAB TOGGLE: Quick Entry | Transfer | Full Table -->
   <div style="display:flex;gap:0;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:3px;margin-bottom:14px">
     <button id="inc-tab-entry" onclick="switchIncTab('entry')"
-      style="flex:1;padding:8px;border-radius:9px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--green);color:#fff;border:none;transition:all .2s">
-      + Quick Entry
+      style="flex:1;padding:8px;border-radius:9px;font-size:.75rem;font-weight:600;cursor:pointer;background:var(--green);color:#fff;border:none;transition:all .2s">
+      + Entry
+    </button>
+    <button id="inc-tab-transfer" onclick="switchIncTab('transfer')"
+      style="flex:1;padding:8px;border-radius:9px;font-size:.75rem;font-weight:600;cursor:pointer;background:none;color:var(--muted);border:none;transition:all .2s">
+      🔄 Transfer
     </button>
     <button id="inc-tab-table" onclick="switchIncTab('table')"
-      style="flex:1;padding:8px;border-radius:9px;font-size:.82rem;font-weight:600;cursor:pointer;background:none;color:var(--muted);border:none;transition:all .2s">
+      style="flex:1;padding:8px;border-radius:9px;font-size:.75rem;font-weight:600;cursor:pointer;background:none;color:var(--muted);border:none;transition:all .2s">
       Full Table
     </button>
+  </div>
+
+  <!-- INLINE TRANSFER PANEL -->
+  <div id="inc-transfer-panel" style="display:none">
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">🔄 Transfer Between Accounts</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="frow">
+          <div><div class="fl">From Account</div><select class="fi" id="inc-tf-from"></select></div>
+          <div><div class="fl">To Account</div><select class="fi" id="inc-tf-to"></select></div>
+        </div>
+        <div class="frow">
+          <div>
+            <div class="fl">Amount (Rs)</div>
+            <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;display:flex;align-items:center;gap:6px">
+              <span style="font-size:.85rem;color:var(--muted);font-weight:600">Rs</span>
+              <input type="number" id="inc-tf-amt" inputmode="decimal" placeholder="0"
+                style="flex:1;font-size:1.1rem;font-weight:700;color:var(--blue);background:none;border:none;outline:none"/>
+            </div>
+          </div>
+          <div><div class="fl">Date</div><input class="fi" type="date" id="inc-tf-date"/></div>
+        </div>
+        <div><div class="fl">Note (optional)</div><input class="fi" type="text" id="inc-tf-note" placeholder="e.g. Moving to SBI"/></div>
+        <button onclick="saveInlineTransfer()"
+          style="width:100%;padding:13px;border-radius:var(--r-md);background:linear-gradient(135deg,var(--blue),#1B5E99);color:#fff;font-size:.93rem;font-weight:700;cursor:pointer">
+          🔄 Save Transfer
+        </button>
+      </div>
+    </div>
+    <div class="section-label">Recent Transfers</div>
+    <div id="inc-tf-log"><div class="empty" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg)">No transfers yet</div></div>
   </div>
 
   <!-- QUICK ENTRY FORM -->
@@ -402,13 +438,48 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
 
   <div style="display:flex;gap:0;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:3px;margin-bottom:14px">
     <button id="exp-tab-entry" onclick="switchExpTab('entry')"
-      style="flex:1;padding:8px;border-radius:9px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--red);color:#fff;border:none;transition:all .2s">
-      + Quick Entry
+      style="flex:1;padding:8px;border-radius:9px;font-size:.75rem;font-weight:600;cursor:pointer;background:var(--red);color:#fff;border:none;transition:all .2s">
+      + Entry
+    </button>
+    <button id="exp-tab-transfer" onclick="switchExpTab('transfer')"
+      style="flex:1;padding:8px;border-radius:9px;font-size:.75rem;font-weight:600;cursor:pointer;background:none;color:var(--muted);border:none;transition:all .2s">
+      🔄 Transfer
     </button>
     <button id="exp-tab-table" onclick="switchExpTab('table')"
-      style="flex:1;padding:8px;border-radius:9px;font-size:.82rem;font-weight:600;cursor:pointer;background:none;color:var(--muted);border:none;transition:all .2s">
+      style="flex:1;padding:8px;border-radius:9px;font-size:.75rem;font-weight:600;cursor:pointer;background:none;color:var(--muted);border:none;transition:all .2s">
       Full Table
     </button>
+  </div>
+
+  <!-- INLINE TRANSFER PANEL (shared log, same data as income tab transfer) -->
+  <div id="exp-transfer-panel" style="display:none">
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">🔄 Transfer Between Accounts</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="frow">
+          <div><div class="fl">From Account</div><select class="fi" id="exp-tf-from"></select></div>
+          <div><div class="fl">To Account</div><select class="fi" id="exp-tf-to"></select></div>
+        </div>
+        <div class="frow">
+          <div>
+            <div class="fl">Amount (Rs)</div>
+            <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;display:flex;align-items:center;gap:6px">
+              <span style="font-size:.85rem;color:var(--muted);font-weight:600">Rs</span>
+              <input type="number" id="exp-tf-amt" inputmode="decimal" placeholder="0"
+                style="flex:1;font-size:1.1rem;font-weight:700;color:var(--blue);background:none;border:none;outline:none"/>
+            </div>
+          </div>
+          <div><div class="fl">Date</div><input class="fi" type="date" id="exp-tf-date"/></div>
+        </div>
+        <div><div class="fl">Note (optional)</div><input class="fi" type="text" id="exp-tf-note" placeholder="e.g. Moving to SBI"/></div>
+        <button onclick="saveInlineTransfer('exp')"
+          style="width:100%;padding:13px;border-radius:var(--r-md);background:linear-gradient(135deg,var(--blue),#1B5E99);color:#fff;font-size:.93rem;font-weight:700;cursor:pointer">
+          🔄 Save Transfer
+        </button>
+      </div>
+    </div>
+    <div class="section-label">Recent Transfers</div>
+    <div id="exp-tf-log"><div class="empty" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg)">No transfers yet</div></div>
   </div>
 
   <!-- QUICK ENTRY FORM -->
@@ -599,7 +670,11 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
   <div class="inv-card">
     <div class="inv-hdr"><span class="inv-title">📊 Stocks &amp; ETF</span><span class="fsm tm">Zerodha Kite</span></div>
     <table class="inv-tbl"><thead><tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>Price</th><th>P&amp;L</th></tr></thead><tbody id="stk-body"></tbody></table>
-    <button class="add-btn" onclick="openFlowModal('kite_to_stock')">+ Buy Stock / ETF</button>
+    <div style="display:flex;gap:8px;padding:10px 14px 4px">
+      <button class="add-btn" style="flex:1;margin:0" onclick="openFlowModal('kite_to_stock')">+ Buy Stock / ETF</button>
+      <button class="add-btn" style="flex:1;margin:0;background:var(--blue-lt);color:var(--blue);border:1px solid var(--blue)" onclick="triggerZerodhaImport()">📊 Import from Zerodha</button>
+    </div>
+    <input type="file" id="zerodhaFile2" accept=".xlsx" style="display:none" onchange="handleZerodhaFile(event)"/>
   </div>
 
   <div class="section-label">Cryptocurrency</div>
@@ -800,13 +875,7 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
     <div class="m-body">
       <p style="font-size:.82rem;color:var(--muted);line-height:1.5">Each FY stores its own data. Switching loads that year — your other years are preserved.</p>
       <div><div class="fl">Financial Year</div>
-        <select class="fi" id="fy-select">
-          <option value="2324">FY 2023-24</option>
-          <option value="2425">FY 2024-25</option>
-          <option value="2526" selected>FY 2025-26</option>
-          <option value="2627">FY 2026-27</option>
-          <option value="2728">FY 2027-28</option>
-        </select>
+        <select class="fi" id="fy-select"></select>
       </div>
       <button class="btn-p" onclick="applyFY()">Switch to Selected FY</button>
       <button class="btn-s" onclick="closeFYModal()">Cancel</button>
@@ -825,6 +894,13 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
         <div style="font-size:.8rem;font-weight:700;margin-bottom:5px">JSON Backup Restore</div>
         <div style="font-size:.77rem;color:var(--muted);margin-bottom:10px">Restore a previously exported DoctorWealth .json backup file</div>
         <button class="btn-p" onclick="triggerImport()">Restore JSON Backup</button>
+      </div>
+
+      <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-md);padding:14px">
+        <div style="font-size:.8rem;font-weight:700;margin-bottom:5px">📊 Import Stocks from Zerodha</div>
+        <div style="font-size:.77rem;color:var(--muted);margin-bottom:10px">Upload your Zerodha Console Tax P&amp;L (.xlsx) — current holdings, quantity and price are added automatically</div>
+        <button class="btn-p" onclick="triggerZerodhaImport()">Upload Zerodha P&amp;L (.xlsx)</button>
+        <input type="file" id="zerodhaFile" accept=".xlsx" style="display:none" onchange="handleZerodhaFile(event)"/>
       </div>
 
       <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r-md);padding:14px">
@@ -1256,8 +1332,18 @@ function doTransfer(){
 function renderTfLog(){
   var log=S.tr||[];var el=g('tf-log');
   if(!log.length){el.innerHTML='<div class="empty">No transfers yet</div>';return;}
-  function an(id){return accName(id);}
-  el.innerHTML=log.slice(0,15).map(function(t){return '<div class="tl-item"><div><div class="fw7 fsm">'+accName(t.fr)+' → '+accName(t.to)+'</div><div class="tl-sub">'+t.dt+(t.note?' · '+t.note:'')+'</div></div><div class="fw7 tb">'+fmt(t.amt)+'</div></div>';}).join('');
+  el.innerHTML=log.slice(0,20).map(function(t){
+    return '<div class="tl-item" onclick="editTransfer('+t.id+')" style="cursor:pointer">'
+      +'<div style="flex:1">'
+        +'<div class="fw7 fsm">'+accName(t.fr)+' → '+accName(t.to)+'</div>'
+        +'<div class="tl-sub">'+formatDate(t.dt)+(t.note?' · '+t.note:'')+'</div>'
+      +'</div>'
+      +'<div style="text-align:right">'
+        +'<div class="fw7 tb">'+fmt(t.amt)+'</div>'
+        +'<div style="font-size:.65rem;color:var(--blue)">tap to edit</div>'
+      +'</div>'
+    +'</div>';
+  }).join('');
 }
 
 function renderInv(){
@@ -2639,36 +2725,45 @@ var expTabMode = 'entry';
 
 function switchIncTab(mode){
   incTabMode = mode;
-  var ep=g('inc-entry-panel'), tp=g('inc-table-panel');
-  var be=g('inc-tab-entry'), bt=g('inc-tab-table');
+  var ep=g('inc-entry-panel'), tp=g('inc-table-panel'), xp=g('inc-transfer-panel');
+  var be=g('inc-tab-entry'), bt=g('inc-tab-table'), bx=g('inc-tab-transfer');
+  // Hide all panels first
+  [ep,tp,xp].forEach(function(p){if(p)p.style.display='none';});
+  [be,bt,bx].forEach(function(b){if(b){b.style.background='none';b.style.color='var(--muted)';}});
   if(mode==='entry'){
     if(ep) ep.style.display='';
-    if(tp) tp.style.display='none';
-    if(be){ be.style.background='var(--green)'; be.style.color='#fff'; }
-    if(bt){ bt.style.background='none'; bt.style.color='var(--muted)'; }
+    if(be){be.style.background='var(--green)'; be.style.color='#fff';}
+  } else if(mode==='transfer'){
+    if(xp) xp.style.display='';
+    if(bx){bx.style.background='var(--blue)'; bx.style.color='#fff';}
+    populateInlineTfSelects('inc');
+    renderInlineTfLog('inc');
+    if(g('inc-tf-date')) g('inc-tf-date').value=tod();
   } else {
-    if(ep) ep.style.display='none';
     if(tp) tp.style.display='';
-    if(be){ be.style.background='none'; be.style.color='var(--muted)'; }
-    if(bt){ bt.style.background='var(--blue)'; bt.style.color='#fff'; }
+    if(bt){bt.style.background='var(--blue)'; bt.style.color='#fff';}
     renderIncTable(parseInt(g('incMonth').value||0));
   }
 }
 
 function switchExpTab(mode){
   expTabMode = mode;
-  var ep=g('exp-entry-panel'), tp=g('exp-table-panel');
-  var be=g('exp-tab-entry'), bt=g('exp-tab-table');
+  var ep=g('exp-entry-panel'), tp=g('exp-table-panel'), xp=g('exp-transfer-panel');
+  var be=g('exp-tab-entry'), bt=g('exp-tab-table'), bx=g('exp-tab-transfer');
+  [ep,tp,xp].forEach(function(p){if(p)p.style.display='none';});
+  [be,bt,bx].forEach(function(b){if(b){b.style.background='none';b.style.color='var(--muted)';}});
   if(mode==='entry'){
     if(ep) ep.style.display='';
-    if(tp) tp.style.display='none';
-    if(be){ be.style.background='var(--red)'; be.style.color='#fff'; }
-    if(bt){ bt.style.background='none'; bt.style.color='var(--muted)'; }
+    if(be){be.style.background='var(--red)'; be.style.color='#fff';}
+  } else if(mode==='transfer'){
+    if(xp) xp.style.display='';
+    if(bx){bx.style.background='var(--blue)'; bx.style.color='#fff';}
+    populateInlineTfSelects('exp');
+    renderInlineTfLog('exp');
+    if(g('exp-tf-date')) g('exp-tf-date').value=tod();
   } else {
-    if(ep) ep.style.display='none';
     if(tp) tp.style.display='';
-    if(be){ be.style.background='none'; be.style.color='var(--muted)'; }
-    if(bt){ bt.style.background='var(--blue)'; bt.style.color='#fff'; }
+    if(bt){bt.style.background='var(--blue)'; bt.style.color='#fff';}
     renderExpTable(parseInt(g('expMonth').value||0));
   }
 }
@@ -3415,6 +3510,295 @@ if(isIOS && !isStandalone){
   }, 800);
 }
 
+
+/* ══ ZERODHA P&L IMPORT — STOCKS & ETF AUTO-ADD ═══════════════
+   Reads a Zerodha Console Tax P&L Excel export (.xlsx) using
+   SheetJS (client-side, no upload to any server). Extracts the
+   "Equity" sheet, finds the holdings table (header row contains
+   "Symbol"), and adds every currently-held stock/ETF to the
+   portfolio with correct quantity, average cost and last price.
+
+   Key columns used from Zerodha's fixed export format:
+     Symbol                  → stock/ETF name
+     Open Quantity           → current quantity held
+     Open Value              → total cost basis (qty × avg price)
+     Previous Closing Price  → last traded price (used as current price)
+
+   Average cost = Open Value / Open Quantity (Zerodha doesn't
+   export avg price directly, but this is mathematically identical).
+   Rows with zero Open Quantity (fully sold positions) are skipped.
+   Rows with a quantity but zero value (e.g. renamed/delisted
+   scrips with no price data) are also skipped — nothing useful
+   to import for those.
+═══════════════════════════════════════════════════════════════ */
+function triggerZerodhaImport(){
+  var f1=g('zerodhaFile'), f2=g('zerodhaFile2');
+  if(f1) { f1.click(); return; }
+  if(f2) { f2.click(); return; }
+}
+
+function handleZerodhaFile(ev){
+  var file=ev.target.files[0]; if(!file) return;
+  if(typeof XLSX==='undefined'){
+    toast('Excel reader not loaded — check internet connection and retry');
+    ev.target.value=''; return;
+  }
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var data=new Uint8Array(e.target.result);
+      var wb=XLSX.read(data, {type:'array'});
+      parseZerodhaPnL(wb);
+    }catch(err){
+      toast('Could not read file: '+err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  ev.target.value='';
+}
+
+function parseZerodhaPnL(wb){
+  var sheetName = wb.SheetNames.find(function(n){ return n.toLowerCase().indexOf('equity')>=0; }) || wb.SheetNames[0];
+  var ws = wb.Sheets[sheetName];
+  var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+
+  /* Find the header row — the one containing "Symbol" */
+  var headerIdx=-1, headers=[];
+  for(var i=0;i<rows.length;i++){
+    var row=rows[i];
+    if(row && row.indexOf('Symbol')>=0){ headerIdx=i; headers=row; break; }
+  }
+  if(headerIdx<0){
+    toast('Could not find holdings table — is this a Zerodha Tax P&L file?');
+    return;
+  }
+
+  var colSymbol = headers.indexOf('Symbol');
+  var colOpenQty = headers.indexOf('Open Quantity');
+  var colOpenVal = headers.indexOf('Open Value');
+  var colPrevClose = headers.indexOf('Previous Closing Price');
+
+  if(colSymbol<0 || colOpenQty<0 || colOpenVal<0){
+    toast('Unexpected file format — required columns not found');
+    return;
+  }
+
+  var imported=[], skipped=0;
+  for(var r=headerIdx+1; r<rows.length; r++){
+    var row=rows[r];
+    if(!row || !row[colSymbol]) continue;
+    var symbol=String(row[colSymbol]).trim();
+    var qty=parseFloat(row[colOpenQty])||0;
+    var openVal=parseFloat(row[colOpenVal])||0;
+    var prevClose=colPrevClose>=0 ? (parseFloat(row[colPrevClose])||0) : 0;
+
+    if(qty<=0 || openVal<=0){ skipped++; continue; }
+
+    var avg = openVal/qty;
+    imported.push({nm:symbol, qty:qty, avg:avg, pr:prevClose>0?prevClose:avg});
+  }
+
+  if(!imported.length){
+    toast('No current holdings found in file (all positions may be closed)');
+    return;
+  }
+
+  showZerodhaImportPreview(imported, skipped);
+}
+
+function showZerodhaImportPreview(imported, skipped){
+  var totalInvested = imported.reduce(function(t,h){ return t+h.qty*h.avg; }, 0);
+  var html='<div style="background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r-md);padding:12px 14px;margin-bottom:14px">'
+    +'<div style="font-size:.85rem;font-weight:700;color:var(--green)">'+imported.length+' holdings found</div>'
+    +'<div style="font-size:.78rem;color:var(--muted);margin-top:3px">Total invested: '+fmt(totalInvested)+(skipped>0?' · '+skipped+' closed positions skipped':'')+'</div>'
+    +'</div>'
+    +'<div style="max-height:45vh;overflow-y:auto;margin-bottom:12px">'
+    +imported.map(function(h){
+      return '<div style="display:flex;justify-content:space-between;padding:7px 4px;border-bottom:1px solid var(--border);font-size:.8rem">'
+        +'<span style="font-weight:600">'+h.nm+'</span>'
+        +'<span style="color:var(--muted)">'+h.qty+' @ '+fmt(h.avg)+'</span>'
+        +'</div>';
+    }).join('')
+    +'</div>'
+    +'<div style="background:var(--surface);border-radius:var(--r-sm);padding:10px 12px;font-size:.78rem;color:var(--muted);margin-bottom:12px">'
+    +'Existing holdings with the same symbol will be replaced with these values. New symbols will be added.'
+    +'</div>'
+    +'<button class="btn-p" onclick="confirmZerodhaImport()">Add '+imported.length+' Holdings to Portfolio</button>'
+    +'<button class="btn-s" style="margin-top:8px" onclick="closeModal()">Cancel</button>';
+
+  _pendingZerodhaImport = imported;
+  openModal('Import from Zerodha', html);
+}
+
+var _pendingZerodhaImport = null;
+
+function confirmZerodhaImport(){
+  var imported = _pendingZerodhaImport;
+  if(!imported){ toast('Nothing to import'); closeModal(); return; }
+  if(!S.inv.s) S.inv.s=[];
+  var added=0, updated=0;
+
+  imported.forEach(function(h){
+    var existing = S.inv.s.find(function(x){ return x.nm===h.nm; });
+    if(existing){
+      existing.qty=h.qty; existing.avg=h.avg; existing.pr=h.pr;
+      updated++;
+    } else {
+      S.inv.s.push({nm:h.nm, ex:'NSE', qty:h.qty, avg:h.avg, pr:h.pr, date:tod()});
+      added++;
+    }
+  });
+
+  _pendingZerodhaImport = null;
+  saveS();
+  closeModal();
+  renderInv();
+  updateDash();
+  toast(added+' added, '+updated+' updated ✓');
+}
+
+
+/* ══ EDIT / DELETE TRANSFER ════════════════════════════════════ */
+function editTransfer(id){
+  var tr=(S.tr||[]).find(function(t){return t.id===id;});
+  if(!tr){toast('Transfer not found');return;}
+
+  var accOptsHtml = getAC().map(function(a){
+    return '<option value="'+a.id+'">'+accName(a.id)+'</option>';
+  }).join('');
+
+  var frOpts = getAC().map(function(a){
+    return '<option value="'+a.id+'"'+(a.id===tr.fr?' selected':'')+'>'+accName(a.id)+'</option>';
+  }).join('');
+  var toOpts = getAC().map(function(a){
+    return '<option value="'+a.id+'"'+(a.id===tr.to?' selected':'')+'>'+accName(a.id)+'</option>';
+  }).join('');
+
+  var html=
+    '<div class="frow">'
+      +'<div><div class="fl">From Account</div><select class="fi" id="et-from">'+frOpts+'</select></div>'
+      +'<div><div class="fl">To Account</div><select class="fi" id="et-to">'+toOpts+'</select></div>'
+    +'</div>'
+    +'<div class="frow">'
+      +'<div><div class="fl">Amount (Rs)</div><input class="fi" type="number" id="et-amt" value="'+tr.amt+'" inputmode="decimal"/></div>'
+      +'<div><div class="fl">Date</div><input class="fi" type="date" id="et-dt" value="'+tr.dt+'"/></div>'
+    +'</div>'
+    +'<div><div class="fl">Note (optional)</div><input class="fi" type="text" id="et-note" value="'+(tr.note||'').replace(/"/g,'&quot;')+'"/></div>'
+    +'<button class="btn-p" style="margin-top:10px" onclick="saveEditedTransfer('+id+')">Save Changes</button>'
+    +'<button class="btn-s" style="margin-top:8px;color:var(--red)" onclick="closeModal();deleteTransfer('+id+')">Delete Transfer</button>';
+
+  openModal('Edit Transfer', html);
+}
+
+function saveEditedTransfer(id){
+  var idx=(S.tr||[]).findIndex(function(t){return t.id===id;});
+  if(idx<0){toast('Not found');closeModal();return;}
+  var tr=S.tr[idx];
+
+  var newFr=g('et-from').value, newTo=g('et-to').value;
+  var newAmt=nv(g('et-amt').value), newDt=g('et-dt').value||tr.dt;
+  var newNote=g('et-note').value||'';
+
+  if(!newAmt||newAmt<=0){toast('Enter valid amount');return;}
+  if(newFr===newTo){toast('From and To must differ');return;}
+
+  // Reverse old transfer
+  if(S.acc[tr.fr]) S.acc[tr.fr].bal=nv(S.acc[tr.fr].bal)+tr.amt;
+  if(S.acc[tr.to]) S.acc[tr.to].bal=nv(S.acc[tr.to].bal)-tr.amt;
+
+  // Apply new transfer
+  if(!S.acc[newFr]) S.acc[newFr]={bal:0,note:''};
+  if(!S.acc[newTo]) S.acc[newTo]={bal:0,note:''};
+  S.acc[newFr].bal=nv(S.acc[newFr].bal)-newAmt;
+  S.acc[newTo].bal=nv(S.acc[newTo].bal)+newAmt;
+
+  S.tr[idx]={fr:newFr,to:newTo,amt:newAmt,dt:newDt,note:newNote,id:id};
+  saveS();closeModal();
+  renderAcc();renderTfLog();updateDash();
+  toast('Transfer updated ✓');
+}
+
+function deleteTransfer(id){
+  var idx=(S.tr||[]).findIndex(function(t){return t.id===id;});
+  if(idx<0){toast('Not found');return;}
+  var tr=S.tr[idx];
+  // Reverse the transfer
+  if(S.acc[tr.fr]) S.acc[tr.fr].bal=nv(S.acc[tr.fr].bal)+tr.amt;
+  if(S.acc[tr.to]) S.acc[tr.to].bal=nv(S.acc[tr.to].bal)-tr.amt;
+  S.tr.splice(idx,1);
+  saveS();
+  renderAcc();renderTfLog();updateDash();
+  toast('Transfer deleted');
+}
+
+
+/* ══ INLINE TRANSFER (from Income/Expense tabs) ════════════════ */
+function populateInlineTfSelects(prefix){
+  var opts=getAC().map(function(a){
+    return '<option value="'+a.id+'">'+accName(a.id)+'</option>';
+  }).join('');
+  var fr=g(prefix+'-tf-from'), to=g(prefix+'-tf-to');
+  if(fr) fr.innerHTML=opts;
+  if(to) to.innerHTML=opts;
+  // Default: select second account for "to" so they differ
+  if(to && getAC().length>1) to.value=getAC()[1].id;
+}
+
+function saveInlineTransfer(prefix){
+  prefix = prefix || 'inc';
+  var fr=g(prefix+'-tf-from').value;
+  var to=g(prefix+'-tf-to').value;
+  var amt=nv(g(prefix+'-tf-amt').value);
+  var dt=g(prefix+'-tf-date').value||tod();
+  var note=g(prefix+'-tf-note').value||'';
+
+  if(!amt||amt<=0){toast('Enter valid amount');return;}
+  if(fr===to){toast('From and To must be different accounts');return;}
+
+  // Check balance
+  var curBal=nv(S.acc[fr]&&S.acc[fr].bal);
+  if(curBal>0 && curBal<amt){
+    if(!confirm('Balance in '+accName(fr)+' is '+fmt(curBal)+'. Proceed anyway?')) return;
+  }
+
+  if(!S.acc[fr]) S.acc[fr]={bal:0,note:''};
+  if(!S.acc[to]) S.acc[to]={bal:0,note:''};
+  S.acc[fr].bal=nv(S.acc[fr].bal)-amt;
+  S.acc[to].bal=nv(S.acc[to].bal)+amt;
+  if(!S.tr) S.tr=[];
+  S.tr.unshift({fr:fr,to:to,amt:amt,dt:dt,note:note,id:Date.now()});
+
+  saveS();
+  // Clear amount and note, keep accounts as-is for quick repeat entries
+  g(prefix+'-tf-amt').value='';
+  g(prefix+'-tf-note').value='';
+  renderInlineTfLog(prefix);
+  renderAcc();
+  updateDash();
+  toast(accName(fr)+' → '+accName(to)+' · '+fmt(amt)+' ✓');
+}
+
+function renderInlineTfLog(prefix){
+  var el=g(prefix+'-tf-log'); if(!el) return;
+  var log=S.tr||[];
+  if(!log.length){
+    el.innerHTML='<div class="empty" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg)">No transfers yet</div>';
+    return;
+  }
+  el.innerHTML=log.slice(0,10).map(function(t){
+    return '<div class="tl-item" onclick="editTransfer('+t.id+')" style="cursor:pointer;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:6px;padding:10px 14px">'
+      +'<div style="flex:1">'
+        +'<div style="font-size:.84rem;font-weight:600">'+accName(t.fr)+' → '+accName(t.to)+'</div>'
+        +'<div style="font-size:.72rem;color:var(--muted);margin-top:2px">'+formatDate(t.dt)+(t.note?' · '+t.note:'')+'</div>'
+      +'</div>'
+      +'<div style="text-align:right">'
+        +'<div style="font-size:.9rem;font-weight:700;color:var(--blue)">'+fmt(t.amt)+'</div>'
+        +'<div style="font-size:.65rem;color:var(--blue);margin-top:2px">tap to edit</div>'
+      +'</div>'
+    +'</div>';
+  }).join('');
+}
+
 function sv(id,btn){
   document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
   document.querySelectorAll('.nav-tab').forEach(function(t){t.classList.remove('active');});
@@ -3433,10 +3817,58 @@ function sv(id,btn){
 
 
 /* ══ FINANCIAL YEAR ══════════════════════════════════════════ */
-var CURRENT_FY = localStorage.getItem('dw_fy') || '2526';
-var FY_MAP = {'2324':'23-24','2425':'24-25','2526':'25-26','2627':'26-27','2728':'27-28'};
-var FY_YEAR_MAP = {'2324':'FY 2023-24','2425':'FY 2024-25','2526':'FY 2025-26','2627':'FY 2026-27','2728':'FY 2027-28'};
-var FY_YEAR_STARTS = {'2324':2023,'2425':2024,'2526':2025,'2627':2026,'2728':2027};
+/* ══ FINANCIAL YEAR — FULLY DYNAMIC, NEVER EXPIRES ════════════
+   Old version hardcoded FY2324 through FY2728 — would have
+   silently broken in April 2028. Now generated from the actual
+   calendar year, so every FY past, present and future works
+   identically, forever, with zero maintenance.
+═══════════════════════════════════════════════════════════════ */
+function defaultFYKey(){
+  var now=new Date(); var y=now.getFullYear(); var m=now.getMonth(); // 0=Jan
+  var startYr = m>=3 ? y : y-1; // FY starts in April (month index 3)
+  return String(startYr).slice(2)+String(startYr+1).slice(2);
+}
+function fyKeyToStartYear(key){
+  var first2=parseInt(key.slice(0,2),10);
+  return 2000+first2;
+}
+function fyShortLabel(key){
+  return key.slice(0,2)+'-'+key.slice(2);
+}
+function fyFullLabel(key){
+  var y1=fyKeyToStartYear(key);
+  return 'FY '+y1+'-'+String(y1+1).slice(2);
+}
+
+var CURRENT_FY = localStorage.getItem('dw_fy') || defaultFYKey();
+
+/* Backward-compatible lookup objects, now built from functions
+   instead of being hardcoded, so any FY key works. */
+var FY_MAP = new Proxy({}, { get: function(t,key){ return fyShortLabel(key); } });
+var FY_YEAR_MAP = new Proxy({}, { get: function(t,key){ return fyFullLabel(key); } });
+var FY_YEAR_STARTS = new Proxy({}, { get: function(t,key){ return fyKeyToStartYear(key); } });
+
+/* Generate a working range of FY keys: 6 years back, 10 years
+   forward from whichever year the app is actually opened in. */
+function generateFYKeyRange(){
+  var now=new Date(); var y=now.getFullYear(); var m=now.getMonth();
+  var curStartYr = m>=3 ? y : y-1;
+  var keys=[];
+  for(var offset=-6; offset<=10; offset++){
+    var startYr = curStartYr+offset;
+    var key=String(startYr).slice(2)+String(startYr+1).slice(2);
+    keys.push(key);
+  }
+  return keys;
+}
+
+function populateFYSelect(){
+  var sel=g('fy-select'); if(!sel) return;
+  var keys=generateFYKeyRange();
+  sel.innerHTML=keys.map(function(k){
+    return '<option value="'+k+'"'+(k===CURRENT_FY?' selected':'')+'>'+fyFullLabel(k)+'</option>';
+  }).join('');
+}
 
 function getFYKey(){return 'dw4_'+CURRENT_FY;}
 
@@ -3458,6 +3890,7 @@ function updateFYDisplay(){
 }
 
 function openFYModal(){
+  populateFYSelect();
   var sel = g('fy-select'); if(sel) sel.value = CURRENT_FY;
   g('fy-modal').classList.add('open');
 }
