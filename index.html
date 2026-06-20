@@ -548,11 +548,13 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
 </div>
 <!-- ACCOUNTS -->
 <div class="view" id="view-accounts">
-  <button onclick="openAllOpeningBalances()" style="width:100%;padding:11px;border-radius:var(--r-md);background:linear-gradient(135deg,var(--blue),#1B5E99);color:#fff;font-size:.85rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:6px">
+  <button onclick="openAllOpeningBalances()" style="width:100%;padding:11px;border-radius:var(--r-md);background:linear-gradient(135deg,var(--blue),#1B5E99);color:#fff;font-size:.85rem;font-weight:700;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px">
     ✏️ Set Opening Balances — All Accounts
   </button>
+
   <div class="section-label">Personal Bank & Cash</div><div class="ac-grid" id="pers-acc-grid"></div>
-  <div class="section-label">Broker Wallets</div><div class="ac-grid" id="wallet-acc-grid"></div>
+  <div class="section-label">My Broker Wallets</div><div class="ac-grid" id="wallet-acc-grid"></div>
+  <div class="section-label">Spouse Broker Wallets</div><div class="ac-grid" id="sp-wallet-acc-grid"></div>
   <div class="section-label">Spouse</div><div class="ac-grid" id="sp-acc-grid"></div>
   <div class="section-label">Summary</div>
   <div class="stat-grid">
@@ -573,6 +575,30 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
   </div>
   <div class="section-label">Transfer History</div>
   <div class="card"><div id="tf-log"><div class="empty">No transfers yet</div></div></div>
+
+  <!-- GROUP TRANSFER SUMMARY -->
+  <div class="section-label">Transfer Summary — Group vs Group</div>
+  <div class="card" style="padding:14px">
+    <div style="font-size:.77rem;color:var(--muted);margin-bottom:12px">
+      Select accounts for each group (e.g. your accounts vs spouse accounts) to see total transfers between them.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div>
+        <div style="font-size:.75rem;font-weight:700;color:var(--blue);margin-bottom:6px">GROUP A — My Accounts</div>
+        <div id="pair-group-a" style="display:flex;flex-direction:column;gap:5px"></div>
+      </div>
+      <div>
+        <div style="font-size:.75rem;font-weight:700;color:var(--green);margin-bottom:6px">GROUP B — Spouse Accounts</div>
+        <div id="pair-group-b" style="display:flex;flex-direction:column;gap:5px"></div>
+      </div>
+    </div>
+    <button onclick="renderGroupSummary()" style="width:100%;padding:9px;border-radius:var(--r-sm);background:linear-gradient(135deg,var(--blue),#1B5E99);color:#fff;font-size:.83rem;font-weight:600;margin-bottom:12px">
+      Show Transfer Summary
+    </button>
+    <div id="pair-summary">
+      <div style="font-size:.8rem;color:var(--muted);text-align:center;padding:10px 0">Select accounts above and tap Show Summary</div>
+    </div>
+  </div>
 </div>
 
 <!-- INVESTMENTS -->
@@ -633,11 +659,16 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
 
   <!-- Wallet Balances Quick View -->
   <div class="section-label">Wallet Balances</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
     <div class="stat-card" style="border-left:3px solid var(--purple)">
-      <div class="stat-label">Kite Wallet</div>
+      <div class="stat-label" id="kite-bal-label">Kite Wallet</div>
       <div class="stat-value" id="kite-bal-display" style="color:var(--purple)">₹0</div>
-      <div class="stat-sub">Zerodha</div>
+      <div class="stat-sub">Zerodha (Mine)</div>
+    </div>
+    <div class="stat-card" style="border-left:3px solid #A855F7">
+      <div class="stat-label" id="sp-kite-bal-label">Spouse Kite</div>
+      <div class="stat-value" id="sp-kite-bal-display" style="color:#A855F7">₹0</div>
+      <div class="stat-sub">Zerodha (Wife)</div>
     </div>
     <div class="stat-card" style="border-left:3px solid var(--gold)">
       <div class="stat-label">CoinDCX Wallet</div>
@@ -795,6 +826,38 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
 
 <!-- TAX -->
 <div class="view" id="view-tax">
+
+  <!-- Tax person toggle -->
+  <div style="display:flex;gap:0;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:3px;margin-bottom:14px">
+    <button id="tax-tab-mine" onclick="switchTaxTab('mine')"
+      style="flex:1;padding:8px;border-radius:9px;font-size:.82rem;font-weight:600;cursor:pointer;background:var(--blue);color:#fff;border:none;transition:all .2s">
+      👤 My Tax
+    </button>
+    <button id="tax-tab-wife" onclick="switchTaxTab('wife')"
+      style="flex:1;padding:8px;border-radius:9px;font-size:.82rem;font-weight:600;cursor:pointer;background:none;color:var(--muted);border:none;transition:all .2s">
+      👤 Wife's Tax
+    </button>
+  </div>
+
+  <!-- MY TAX PANEL -->
+  <div id="tax-panel-mine">
+
+  <!-- Cash income toggle -->
+  <div style="display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--border);border-radius:var(--r-md);padding:10px 14px;margin-bottom:12px">
+    <div>
+      <div style="font-size:.82rem;font-weight:600">Include Cash Income in Tax</div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:2px">Toggle off to exclude cash receipts (PNH cash, clinic cash) from taxable income</div>
+    </div>
+    <label style="position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0">
+      <input type="checkbox" id="tax-include-cash" checked onchange="autoFillTax();saveS();renderTax()"
+        style="opacity:0;width:0;height:0"/>
+      <span style="position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:24px;transition:.3s"
+        onclick="this.previousElementSibling.click()">
+        <span style="position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s"></span>
+      </span>
+    </label>
+  </div>
+
   <div class="section-label">Annual Income — FY 2025-26</div>
   <div class="card"><table class="itbl">
     <thead><tr><th>Income Source</th><th style="text-align:right">Annual (Rs)</th></tr></thead>
@@ -833,6 +896,9 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
   </div>
 
   <div class="section-label">TDS Tracking</div>
+  <button onclick="openTDSRateSettings()" style="width:100%;padding:9px;border-radius:var(--r-sm);background:var(--surface);border:1px solid var(--border);color:var(--blue);font-size:.8rem;font-weight:600;margin-bottom:8px;cursor:pointer">
+    ⚙️ Set TDS Rates per Source (auto gross-up)
+  </button>
   <div class="card"><table class="itbl">
     <thead><tr><th>Source</th><th style="text-align:right">TDS Deducted (Rs)</th></tr></thead>
     <tbody id="tds-body"></tbody>
@@ -971,7 +1037,8 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
     </div>
     <div style="font-size:.8rem;font-weight:700;margin:16px 0 10px">Broker Wallets</div>
     <div style="display:flex;flex-direction:column;gap:10px">
-      <div><div class="fl">Kite Wallet</div><input class="fi" id="set-n-kite" placeholder="e.g. Kite Wallet, Zerodha"/></div>
+      <div><div class="fl">My Kite Wallet</div><input class="fi" id="set-n-kite" placeholder="e.g. Kite Wallet"/></div>
+      <div><div class="fl">Spouse Kite Wallet</div><input class="fi" id="set-n-sp_kite" placeholder="e.g. Wife Kite Wallet"/></div>
       <div><div class="fl">CoinDCX Wallet</div><input class="fi" id="set-n-coindcx" placeholder="e.g. CoinDCX Wallet"/></div>
     </div>
     <div style="font-size:.8rem;font-weight:700;margin:16px 0 10px">Spouse Accounts</div>
@@ -982,6 +1049,47 @@ input,select,textarea{font:inherit;border:none;outline:none;background:none}
       <div><div class="fl">Spouse Bank 2</div><input class="fi" id="set-n-sp_b2" placeholder="e.g. IDFC First"/></div>
     </div>
     <button class="btn-p" style="margin-top:16px" onclick="saveCustomNames()">Save All Names</button>
+  </div>
+
+  <!-- ADD/REMOVE ACCOUNTS -->
+  <div class="section-label">Manage Bank Accounts</div>
+  <div class="card" style="padding:14px;margin-bottom:4px">
+    <div id="custom-accs-list"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input class="fi" style="flex:1;margin:0" type="text" id="new-acc-name" placeholder="Account name e.g. ICICI Savings"/>
+      <select class="fi" style="width:100px;margin:0" id="new-acc-type">
+        <option value="bank">Bank</option>
+        <option value="cash">Cash</option>
+        <option value="wallet">Wallet</option>
+      </select>
+      <select class="fi" style="width:100px;margin:0" id="new-acc-group">
+        <option value="personal">Mine</option>
+        <option value="spouse">Spouse</option>
+      </select>
+    </div>
+    <button onclick="addCustomAccount()" style="width:100%;margin-top:8px;padding:9px;border-radius:var(--r-sm);background:var(--blue);color:#fff;font-size:.83rem;font-weight:600">+ Add Account</button>
+  </div>
+
+  <!-- ADD/REMOVE HOSPITALS -->
+  <div class="section-label">Manage Hospitals</div>
+  <div class="card" style="padding:14px;margin-bottom:4px">
+    <div style="font-size:.77rem;color:var(--muted);margin-bottom:10px">Hospital 1 (PNH) and Hospital 2 (DKM) are your primary hospitals — rename them in Customise Names above. Add extra hospitals here.</div>
+    <div id="extra-hosp-list"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input class="fi" style="flex:1;margin:0" type="text" id="new-hosp-name" placeholder="e.g. St. Joseph Hospital"/>
+    </div>
+    <button onclick="addExtraHospital()" style="width:100%;margin-top:8px;padding:9px;border-radius:var(--r-sm);background:var(--green);color:#fff;font-size:.83rem;font-weight:600">+ Add Hospital</button>
+  </div>
+
+  <!-- ADD/REMOVE OTHER INCOME SOURCES -->
+  <div class="section-label">Manage Other Income Sources</div>
+  <div class="card" style="padding:14px;margin-bottom:4px">
+    <div style="font-size:.77rem;color:var(--muted);margin-bottom:10px">Add custom income sources that appear in the Income tab under "Other Income".</div>
+    <div id="custom-oi-list"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input class="fi" style="flex:1;margin:0" type="text" id="new-oi-name" placeholder="e.g. Consultancy Fees, Teaching Income"/>
+    </div>
+    <button onclick="addCustomOI()" style="width:100%;margin-top:8px;padding:9px;border-radius:var(--r-sm);background:var(--gold);color:#fff;font-size:.83rem;font-weight:600">+ Add Income Source</button>
   </div>
 
   <div class="section-label">Data Management</div>
@@ -1096,9 +1204,69 @@ var IS={
   cl:[{k:"cl_cc",n:"Consultation - Cash"},{k:"cl_cu",n:"Consultation - UPI",b:"upi"},{k:"cl_pc",n:"Procedures - Cash"},{k:"cl_pu",n:"Procedures - UPI",b:"upi"},{k:"cl_ot",n:"Other Income"},{k:"cl_ex",n:"Less: Expenses",s:"Consumables etc",x:true}],
   oi:[{k:"oi_in",n:"Interest Income",s:"FD, savings"},{k:"oi_dv",n:"Dividend Income",s:"Stocks, MF"},{k:"oi_ph",n:"Arihant Medicos",s:"Pharma net"},{k:"oi_rn",n:"Rental Income"},{k:"oi_ms",n:"Miscellaneous"}]
 };
+
+/* TDS rates per income source (user-configurable, stored in S.tdsRates) */
+var TDS_RATE_SOURCES=[
+  {k:"h1_bk",n:"PNH — Fixed (Bank)",    defaultRate:0.10},
+  {k:"h1_op",n:"PNH — OPD Commission",  defaultRate:0.10},
+  {k:"h1_lb",n:"PNH — Lab Commission",  defaultRate:0.10},
+  {k:"h2_mn",n:"DKM — Min Guaranteed",  defaultRate:0.10},
+  {k:"h2_op",n:"DKM — OPD Share",       defaultRate:0.10},
+  {k:"oi_in",n:"Interest Income (FD)",  defaultRate:0.10},
+  {k:"oi_rn",n:"Rental Income",         defaultRate:0.10},
+];
+
+/* Cash income keys — excluded from tax when toggle is off */
+var CASH_INC_KEYS=['h1_ca','cl_cc','cl_pc'];
+
+/* Wife's income sources */
+var WIFE_INC=[
+  {k:"wi_sal",n:"Salary",s:"Monthly salary"},
+  {k:"wi_bus",n:"Business Income"},
+  {k:"wi_int",n:"Interest Income",s:"FD, savings"},
+  {k:"wi_div",n:"Dividend Income"},
+  {k:"wi_rnt",n:"Rental Income"},
+  {k:"wi_oth",n:"Other Income"},
+];
+var WIFE_DED=[
+  {k:"wd_80c",n:"80C — LIC / PPF / ELSS",s:"Max Rs 1,50,000",cap:150000},
+  {k:"wd_80d",n:"80D — Health Insurance",s:"Max Rs 25,000",cap:25000},
+  {k:"wd_std",n:"Standard Deduction",s:"Rs 75,000",cap:75000},
+  {k:"wd_oth",n:"Other Deductions"},
+];
+var WIFE_TDS=[
+  {k:"wt_sal",n:"TDS — Salary",s:"Employer deduction"},
+  {k:"wt_fd", n:"TDS — FD Interest"},
+  {k:"wt_oth",n:"TDS — Other"},
+];
 var ES={
-  p:[{k:"ep_gr",n:"Groceries & Food",e:"Grocery"},{k:"ep_ut",n:"Utilities",e:"Bills",s:"Electricity, water"},{k:"ep_fu",n:"Fuel - Personal",e:"Fuel"},{k:"ep_tr",n:"Travel",e:"Travel"},{k:"ep_ed",n:"Children's Education",e:"Education"},{k:"ep_ch",n:"Children's Misc",e:"Kids"},{k:"ep_in",n:"Insurance",e:"Insurance"},{k:"ep_md",n:"Medical & Health",e:"Medical"},{k:"ep_en",n:"Entertainment",e:"Fun"},{k:"ep_cl",n:"Clothing",e:"Clothing"},{k:"ep_hm",n:"Household",e:"Home"},{k:"ep_gf",n:"Gifts & Occasions",e:"Gifts"},{k:"ep_mi",n:"Personal Misc",e:"Misc"}],
-  r:[{k:"pr_st",n:"Staff Salary",e:"Staff"},{k:"pr_dr",n:"Driver / Assistant",e:"Driver"},{k:"pr_rn",n:"Clinic Rent",e:"Rent"},{k:"pr_eq",n:"Equipment",e:"Equipment"},{k:"pr_bk",n:"Medical Books",e:"Books"},{k:"pr_cm",n:"CME / Conferences",e:"CME"},{k:"pr_sw",n:"Software",e:"Software"},{k:"pr_it",n:"Internet & Phone",e:"Internet"},{k:"pr_vh",n:"Vehicle - Professional",e:"Vehicle"},{k:"pr_mi",n:"Professional Misc",e:"Misc"}]
+  p:[
+    {k:"ep_gr",n:"Groceries & Food"},
+    {k:"ep_ut",n:"Utilities",s:"Electricity, water"},
+    {k:"ep_fu",n:"Fuel - Personal"},
+    {k:"ep_tr",n:"Travel"},
+    {k:"ep_ed",n:"Children's Education"},
+    {k:"ep_ch",n:"Children's Misc"},
+    {k:"ep_in",n:"Insurance"},
+    {k:"ep_md",n:"Medical & Health"},
+    {k:"ep_en",n:"Entertainment"},
+    {k:"ep_cl",n:"Clothing"},
+    {k:"ep_hm",n:"Household"},
+    {k:"ep_gf",n:"Gifts & Occasions"},
+    {k:"ep_mi",n:"Personal Misc"}
+  ],
+  r:[
+    {k:"pr_st",n:"Staff Salary"},
+    {k:"pr_dr",n:"Driver / Assistant"},
+    {k:"pr_rn",n:"Clinic Rent"},
+    {k:"pr_eq",n:"Equipment"},
+    {k:"pr_bk",n:"Medical Books"},
+    {k:"pr_cm",n:"CME / Conferences"},
+    {k:"pr_sw",n:"Software"},
+    {k:"pr_it",n:"Internet & Phone"},
+    {k:"pr_vh",n:"Vehicle - Professional"},
+    {k:"pr_mi",n:"Professional Misc"}
+  ]
 };
 // AC is built dynamically from S.settings so names are editable
 var AC_DEFAULTS=[
@@ -1107,6 +1275,7 @@ var AC_DEFAULTS=[
   {id:"bk1",    n:"Bank Account 1",    t:"bank",  g:"personal",ic:"Bank 1",s:"Primary"},
   {id:"bk2",    n:"Bank Account 2",    t:"bank",  g:"personal",ic:"Bank 2",s:"Secondary"},
   {id:"kite",   n:"Kite Wallet",       t:"wallet",g:"wallet",  ic:"Kite",   s:"Zerodha"},
+  {id:"sp_kite",n:"Spouse Kite Wallet",t:"wallet",g:"sp_wallet",ic:"Sp Kite",s:"Zerodha"},
   {id:"coindcx",n:"CoinDCX Wallet",    t:"wallet",g:"wallet",  ic:"DCX",    s:"CoinDCX"},
   {id:"sp_c",   n:"Spouse Cash",       t:"cash",  g:"spouse",  ic:"Spouse Cash"},
   {id:"sp_b1",  n:"Spouse Bank 1",     t:"bank",  g:"spouse",  ic:"Spouse B1",s:"Primary"},
@@ -1114,9 +1283,11 @@ var AC_DEFAULTS=[
 ];
 function getAC(){
   var names=(S.settings&&S.settings.accounts)||{};
-  return AC_DEFAULTS.map(function(a){
+  var base=AC_DEFAULTS.map(function(a){
     return Object.assign({},a,{n:names[a.id]||a.n});
   });
+  var custom=(S.settings&&S.settings.customAccounts)||[];
+  return base.concat(custom);
 }
 var AC=AC_DEFAULTS; // will be refreshed after state loads
 
@@ -1168,12 +1339,12 @@ function defState(){
   TAX_DED.forEach(function(d){tax.ded[d.k]=d.def||0;});
   var settings={
     accounts:{h_cas:'Cash at Home',c_cas:'Cash at Clinic',bk1:'Bank Account 1',bk2:'Bank Account 2',
-              kite:'Kite Wallet',coindcx:'CoinDCX Wallet',
+              kite:'Kite Wallet',sp_kite:'Spouse Kite Wallet',coindcx:'CoinDCX Wallet',
               sp_c:'Spouse Cash',sp_b1:'Spouse Bank 1',sp_b2:'Spouse Bank 2'},
     hospitals:{h1:'PNH',h2:'DKM',clinic:'Own Clinic'},
     labels:{pharma:'Arihant Medicos',spouse:'Spouse'}
   };
-  return{inc:inc,exp:exp,acc:acc,txns:[],tr:[],opd:[],loans:[],inv:{s:[],c:[],g:[],m:[]},tax:tax,ipos:[],invTxns:[],mobileImported:{},settings:settings};
+  return{inc:inc,exp:exp,acc:acc,txns:[],tr:[],opd:[],loans:[],inv:{s:[],c:[],g:[],m:[]},tax:tax,wifeTax:{inc:{},ded:{},tds:{}},tdsRates:{},ipos:[],invTxns:[],mobileImported:{},settings:settings};
 }
 var S=loadS();
 function loadS(){
@@ -1214,7 +1385,11 @@ function getInv(){
   var iv=0,cv=0;
   S.inv.s.forEach(function(h){iv+=nv(h.qty)*nv(h.avg);cv+=nv(h.qty)*nv(h.pr);});
   S.inv.c.forEach(function(h){iv+=nv(h.qty)*nv(h.avg);cv+=nv(h.qty)*nv(h.pr);});
-  S.inv.g.forEach(function(h){iv+=nv(h.gr)*nv(h.avg);cv+=nv(h.gr)*nv(h.pr);});
+  S.inv.g.forEach(function(h){
+    var goldIv=nv(h.iv)||(nv(h.gr)*nv(h.avg));
+    var goldCv=nv(h.gr)>0?nv(h.gr)*nv(h.pr):goldIv; // if no price, use invested as current
+    iv+=goldIv; cv+=goldCv;
+  });
   S.inv.m.forEach(function(h){iv+=nv(h.iv);cv+=nv(h.cv);});
   return{iv:iv,cv:cv,pnl:cv-iv};
 }
@@ -1300,8 +1475,8 @@ function filterCat(cat,btn){
 
 
 function renderAcc(){
-  ['personal','wallet','spouse'].forEach(function(grp){
-    var gridId=grp==='personal'?'pers-acc-grid':grp==='wallet'?'wallet-acc-grid':'sp-acc-grid';
+  ['personal','wallet','sp_wallet','spouse'].forEach(function(grp){
+    var gridId=grp==='personal'?'pers-acc-grid':grp==='wallet'?'wallet-acc-grid':grp==='sp_wallet'?'sp-wallet-acc-grid':'sp-acc-grid';
     var grid=g(gridId);if(!grid)return;
     grid.innerHTML='';
     getAC().filter(function(a){return a.g===grp;}).forEach(function(a){
@@ -1372,7 +1547,9 @@ function rGold(){
   var arr=S.inv.g;
   if(!arr.length){tb.innerHTML='<tr><td colspan="5" class="empty">None added</td></tr>';return;}
   tb.innerHTML=arr.map(function(h,i){
-    var iv=nv(h.gr)*nv(h.avg),cv=nv(h.gr)*nv(h.pr),pnl=cv-iv,pct=iv>0?pnl/iv*100:0;
+    var iv=nv(h.iv)||(nv(h.gr)*nv(h.avg)); // use stored invested amount if available
+    var cv=nv(h.gr)>0?nv(h.gr)*nv(h.pr):iv;
+    var pnl=cv-iv,pct=iv>0?pnl/iv*100:0;
     return '<tr><td><div style="font-weight:600;font-size:.82rem">'+h.pl+'</div><div style="font-size:.68rem;color:var(--subtle)">'+nv(h.gr).toFixed(3)+'g</div></td><td style="font-size:.8rem">'+nv(h.gr).toFixed(3)+'</td><td style="font-size:.78rem">'+fmt(nv(h.avg))+'/g</td><td><input style="width:75px;text-align:right;border:1px solid var(--border);border-radius:5px;padding:3px 5px;font-size:.78rem;background:var(--surface)" type="number" value="'+(h.pr||0)+'" inputmode="decimal" onchange="updPr(\'g\','+i+',this.value)"/>/g</td><td class="'+(pnl>=0?'pos':'neg')+'">'+(pnl>=0?'+':'')+fmt(pnl)+'</td></tr>';
   }).join('');
 }
@@ -1779,6 +1956,8 @@ function importData(ev){
       if(!S.invTxns)S.invTxns=[];
       if(!S.mobileImported)S.mobileImported={};
       if(!S.txns)S.txns=[];
+      if(!S.wifeTax)S.wifeTax={inc:{},ded:{},tds:{}};
+      if(!S.tdsRates)S.tdsRates={};
       saveS();updateDash();toast('Restored full backup');
     }catch(err){toast('Error: '+err.message);}
   };
@@ -1833,7 +2012,7 @@ var _pendingAction = null;
 
 function renderSettings(){
   var fyBtn = g('set-cur-fy');
-  if(fyBtn) fyBtn.textContent = FY_YEAR_MAP[CURRENT_FY] || ('FY '+CURRENT_FY);
+  if(fyBtn) fyBtn.textContent = getFYYearMap(CURRENT_FY) || ('FY '+CURRENT_FY);
   // Populate name fields with current values
   var st2=getSettings();
   var h=st2.hospitals||{}; var ac=st2.accounts||{}; var lb=st2.labels||{};
@@ -1846,8 +2025,9 @@ function renderSettings(){
   setVal('set-n-c_cas',  ac.c_cas||'Cash at Clinic');
   setVal('set-n-bk1',    ac.bk1||'Bank Account 1');
   setVal('set-n-bk2',    ac.bk2||'Bank Account 2');
-  setVal('set-n-kite',   ac.kite||'Kite Wallet');
-  setVal('set-n-coindcx',ac.coindcx||'CoinDCX Wallet');
+  setVal('set-n-kite',    ac.kite||'Kite Wallet');
+  setVal('set-n-sp_kite', ac.sp_kite||'Spouse Kite Wallet');
+  setVal('set-n-coindcx', ac.coindcx||'CoinDCX Wallet');
   setVal('set-spouse-label',lb.spouse||'Spouse');
   setVal('set-n-sp_c',   ac.sp_c||'Spouse Cash');
   setVal('set-n-sp_b1',  ac.sp_b1||'Spouse Bank 1');
@@ -1867,10 +2047,13 @@ function renderSettings(){
       storEl.textContent = kb + ' KB used';
     }catch(e){ storEl.textContent = 'Unknown'; }
   }
+  renderCustomAccList();
+  renderExtraHospList();
+  renderCustomOIList();
 }
 
 function confirmClearFY(){
-  var fyLabel = FY_YEAR_MAP[CURRENT_FY] || CURRENT_FY;
+  var fyLabel = getFYYearMap(CURRENT_FY) || CURRENT_FY;
   showConfirm(
     'Clear ' + fyLabel + ' Data?',
     'This will permanently delete all income, expenses, OPD visits, loans, investments and transfers for ' + fyLabel + '. Account balances are kept. This cannot be undone.',
@@ -2062,20 +2245,31 @@ function openFlowModal(flowType){
 
   if(flowType==='bank_to_kite'){
     title='🏦 → 💼  Fund Kite Wallet';
+    var kiteOpts='<option value="kite">'+accName('kite')+'</option>'
+      +'<option value="sp_kite">'+accName('sp_kite')+'</option>';
     html=flowField('From Bank Account','sel','flow-from-acc',bankAccOpts())+
+      '<div><div class="fl">To Kite Wallet</div>'
+        +'<select class="fi" id="flow-kite-target">'+kiteOpts+'</select>'
+        +'<div style="font-size:.7rem;color:var(--muted);margin-top:4px">Auto-selects based on bank chosen — override if needed</div>'
+      +'</div>'+
       flowField('Amount (₹)','num','flow-amount','0')+
       flowField('Date','date','flow-date',tod())+
       flowField('Note (optional)','text','flow-note','e.g. For NIFTY ETF purchase')+
-      flowPreview('Kite Wallet balance will increase')+
+      flowPreview('Selected Kite Wallet balance will increase')+
       '<button class="btn-p" onclick="execFlow(\'bank_to_kite\')">Transfer to Kite Wallet</button>';
   }
   else if(flowType==='kite_to_stock'){
     title='💼 → 📊  Buy Stock / ETF';
-    html=flowField('Stock / ETF Symbol','text','flow-symbol','e.g. RELIANCE, NIFTYBEES')+
+    var kiteOpts2='<option value="kite">'+accName('kite')+'</option>'
+      +'<option value="sp_kite">'+accName('sp_kite')+'</option>';
+    html='<div><div class="fl">Buy from Kite Wallet</div>'
+        +'<select class="fi" id="flow-kite-target">'+kiteOpts2+'</select>'
+      +'</div>'+
+      flowField('Stock / ETF Symbol','text','flow-symbol','e.g. RELIANCE, NIFTYBEES')+
       flowField('Exchange','sel','flow-exchange','<option>NSE</option><option>BSE</option>')+
       flowField('Quantity','num','flow-qty','0')+
       flowField('Price per Share (₹)','num','flow-price','0',true)+
-      '<div id="flow-total-preview" style="background:var(--surface);border-radius:var(--r-sm);padding:10px 12px;font-size:.82rem;margin-bottom:10px"><span style="color:var(--muted)">Total Cost: </span><span id="flow-total-amt" style="font-weight:700">₹0</span> <span style="color:var(--muted);font-size:.72rem">(deducted from Kite Wallet)</span></div>'+
+      '<div id="flow-total-preview" style="background:var(--surface);border-radius:var(--r-sm);padding:10px 12px;font-size:.82rem;margin-bottom:10px"><span style="color:var(--muted)">Total Cost: </span><span id="flow-total-amt" style="font-weight:700">₹0</span> <span style="color:var(--muted);font-size:.72rem">(deducted from selected Kite Wallet)</span></div>'+
       flowField('Date','date','flow-date',tod())+
       '<button class="btn-p" onclick="execFlow(\'kite_to_stock\')">Buy Stock</button>';
   }
@@ -2134,6 +2328,17 @@ function openFlowModal(flowType){
         if(ta) ta.textContent = tot>0 ? fmt(tot) : '₹0';
       });
     });
+    // Auto-select Kite wallet based on bank account chosen
+    var fromAccSel=g('flow-from-acc');
+    var kiteTarget=g('flow-kite-target');
+    if(fromAccSel && kiteTarget){
+      var spouseBanks=['sp_b1','sp_b2','sp_c'];
+      var autoKite=function(){
+        kiteTarget.value=spouseBanks.indexOf(fromAccSel.value)>=0?'sp_kite':'kite';
+      };
+      fromAccSel.addEventListener('change', autoKite);
+      autoKite(); // set on open
+    }
   },100);
 }
 
@@ -2161,28 +2366,30 @@ function nf(id){ return nv(gf(id)); }
 function execFlow(flowType){
   if(flowType==='bank_to_kite'){
     var fromAcc=gf('flow-from-acc'), amt=nf('flow-amount'), date=gf('flow-date')||tod(), note=gf('flow-note');
+    var kiteId=gf('flow-kite-target')||'kite';
     if(!amt){toast('Enter amount');return;}
-    // Deduct from bank
     if(!S.acc[fromAcc])S.acc[fromAcc]={bal:0,note:''};
     S.acc[fromAcc].bal=nv(S.acc[fromAcc].bal)-amt;
-    // Add to Kite wallet
-    if(!S.acc['kite'])S.acc['kite']={bal:0,note:''};
-    S.acc['kite'].bal=nv(S.acc['kite'].bal)+amt;
-    // Log transfer
-    logInvTxn({type:'wallet_fund',subtype:'bank_to_kite',from:fromAcc,to:'kite',amt:amt,date:date,note:note||'Kite wallet funding'});
+    if(!S.acc[kiteId])S.acc[kiteId]={bal:0,note:''};
+    S.acc[kiteId].bal=nv(S.acc[kiteId].bal)+amt;
+    logInvTxn({type:'wallet_fund',subtype:'bank_to_kite',from:fromAcc,to:kiteId,amt:amt,date:date,note:note||'Kite wallet funding'});
+    // Also log as transfer so it appears in transfer history
+    if(!S.tr)S.tr=[];
+    S.tr.unshift({fr:fromAcc,to:kiteId,amt:amt,dt:date,note:note||'Kite wallet funding',id:Date.now()});
     saveS();closeModal();renderInv();renderAcc();updateDash();
-    toast('₹'+Math.round(amt).toLocaleString('en-IN')+' moved to Kite Wallet ✓');
+    toast('₹'+Math.round(amt).toLocaleString('en-IN')+' moved to '+accName(kiteId)+' ✓');
   }
   else if(flowType==='kite_to_stock'){
     var sym=(gf('flow-symbol')||'').toUpperCase().trim();
     var qty=nf('flow-qty'), price=nf('flow-price'), date=gf('flow-date')||tod();
     var exchange=gf('flow-exchange')||'NSE';
+    var kiteId=gf('flow-kite-target')||'kite';
     if(!sym){toast('Enter symbol');return;}
     if(!qty||!price){toast('Enter quantity and price');return;}
     var total=qty*price;
-    // Deduct from Kite wallet
-    if(!S.acc['kite'])S.acc['kite']={bal:0,note:''};
-    S.acc['kite'].bal=nv(S.acc['kite'].bal)-total;
+    // Deduct from selected Kite wallet
+    if(!S.acc[kiteId])S.acc[kiteId]={bal:0,note:''};
+    S.acc[kiteId].bal=nv(S.acc[kiteId].bal)-total;
     // Add to stock portfolio
     if(!S.inv.s)S.inv.s=[];
     // Check if symbol exists — add to existing holding
@@ -2196,9 +2403,9 @@ function execFlow(flowType){
     } else {
       S.inv.s.push({nm:sym,ex:exchange,qty:qty,avg:price,pr:price,date:date});
     }
-    logInvTxn({type:'purchase',subtype:'stock',symbol:sym,qty:qty,price:price,total:total,from:'kite',date:date});
+    logInvTxn({type:'purchase',subtype:'stock',symbol:sym,qty:qty,price:price,total:total,from:kiteId,date:date});
     saveS();closeModal();renderInv();updateDash();
-    toast('Bought '+qty+' × '+sym+' @ ₹'+Math.round(price).toLocaleString('en-IN')+' ✓');
+    toast('Bought '+qty+' × '+sym+' @ ₹'+Math.round(price).toLocaleString('en-IN')+' from '+accName(kiteId)+' ✓');
   }
   else if(flowType==='bank_to_coindcx'){
     var fromAcc=gf('flow-from-acc'), amt=nf('flow-amount'), date=gf('flow-date')||tod(), note=gf('flow-note');
@@ -2265,17 +2472,29 @@ function execFlow(flowType){
     if(!S.inv.g)S.inv.g=[];
     var existing=S.inv.g.find(function(h){return h.pl===platform;});
     if(existing){
-      var oldInvested=nv(existing.gr)*nv(existing.avg);
-      var newInvested=oldInvested+amt;
-      existing.gr=nv(existing.gr)+grams;
-      existing.avg=existing.gr>0?newInvested/existing.gr:pricePerGram;
-      existing.pr=pricePerGram||existing.pr;
+      // Always track iv (total invested amount) regardless of grams
+      var oldIv=nv(existing.iv)||nv(existing.gr)*nv(existing.avg);
+      var newIv=oldIv+amt;
+      existing.iv=newIv;
+      if(grams>0){
+        existing.gr=nv(existing.gr)+grams;
+        existing.avg=existing.gr>0?newIv/existing.gr:pricePerGram;
+        existing.pr=pricePerGram||existing.pr;
+      } else {
+        // No grams entered — just track the money invested, don't change gram count
+        if(pricePerGram>0){
+          // Recalculate avg from new total
+          existing.avg=(existing.gr>0)?newIv/existing.gr:pricePerGram;
+          existing.pr=pricePerGram;
+        }
+      }
     } else {
-      S.inv.g.push({pl:platform,gr:grams,avg:pricePerGram||amt,pr:pricePerGram||amt,date:date});
+      S.inv.g.push({pl:platform,gr:grams,avg:pricePerGram||0,pr:pricePerGram||0,iv:amt,date:date});
     }
     logInvTxn({type:'purchase',subtype:'gold',symbol:platform,amt:amt,grams:grams,from:fromAcc,date:date});
     saveS();closeModal();renderInv();renderAcc();updateDash();
-    toast('Gold purchased: '+grams.toFixed(3)+'g from '+platform+' ✓');
+    var msg=grams>0?'Gold: '+grams.toFixed(3)+'g added ✓':'Gold: Rs'+Math.round(amt).toLocaleString('en-IN')+' invested ✓';
+    toast(msg);
   }
 }
 
@@ -2362,9 +2581,14 @@ function updateIPOStatus(idx, status){
 
 function updateWalletDisplays(){
   var kiteBal=nv(S.acc['kite']&&S.acc['kite'].bal);
+  var spKiteBal=nv(S.acc['sp_kite']&&S.acc['sp_kite'].bal);
   var dcxBal=nv(S.acc['coindcx']&&S.acc['coindcx'].bal);
   st('kite-bal-display',fmt(kiteBal));
+  st('sp-kite-bal-display',fmt(spKiteBal));
   st('coindcx-bal-display',fmt(dcxBal));
+  // Update labels with custom names
+  var kl=g('kite-bal-label'); if(kl) kl.textContent=accName('kite');
+  var skl=g('sp-kite-bal-label'); if(skl) skl.textContent=accName('sp_kite');
 }
 
 
@@ -2389,14 +2613,26 @@ var EXP_TO_TAX = {
 };
 
 /* Auto-fill tax from actual income/expense data */
+function buildIncToTax(){
+  var map=Object.assign({},INC_TO_TAX);
+  // Map extra hospital sources to ti_oth
+  var st2=getSettings();
+  (st2.extraHospitals||[]).forEach(function(h){
+    (h.sources||[]).forEach(function(src){ map[src.k]='ti_oth'; });
+  });
+  // Map custom other income to ti_oth
+  (st2.customOI||[]).forEach(function(src){ map[src.k]='ti_oth'; });
+  return map;
+}
 function autoFillTax(){
   if(!S.tax) S.tax={inc:{},ded:{},tds:{},adv:{},cg_stcg:0,cg_ltcg:0};
   // Aggregate full year income per tax bucket
   var taxInc={};
   for(var m=0;m<12;m++){
     var d=S.inc[m]||{};
-    Object.keys(INC_TO_TAX).forEach(function(incKey){
-      var taxKey=INC_TO_TAX[incKey];
+    var INC_TO_TAX_FULL=buildIncToTax();
+    Object.keys(INC_TO_TAX_FULL).forEach(function(incKey){
+      var taxKey=INC_TO_TAX_FULL[incKey];
       if(!taxKey) return;
       taxInc[taxKey]=(taxInc[taxKey]||0)+nv(d[incKey]);
     });
@@ -2430,17 +2666,37 @@ function autoFillTax(){
 
 /* All income categories flat list */
 function getAllIncCats(){
+  var st2=getSettings();
   var cats=[];
-  var groups={
-    'PNH — Hospital 1': IS.h1.filter(function(s){return !s.x;}),
-    'DKM — Hospital 2': IS.h2,
-    'Own Clinic':        IS.cl.filter(function(s){return !s.x;}),
-    'Other Income':      IS.oi
-  };
-  Object.keys(groups).forEach(function(grp){
-    groups[grp].forEach(function(src){
-      cats.push({k:src.k, n:src.n, grp:grp, b:src.b||''});
+  // H1
+  var h1Name=hospName('h1')+' — Hospital 1';
+  IS.h1.filter(function(s){return !s.x;}).forEach(function(src){
+    cats.push({k:src.k,n:src.n,grp:h1Name,b:src.b||''});
+  });
+  // H2
+  var h2Name=hospName('h2')+' — Hospital 2';
+  IS.h2.forEach(function(src){
+    cats.push({k:src.k,n:src.n,grp:h2Name,b:src.b||''});
+  });
+  // Extra hospitals
+  var extraHosp=st2.extraHospitals||[];
+  extraHosp.forEach(function(h){
+    (h.sources||[]).forEach(function(src){
+      cats.push({k:src.k,n:src.n,grp:h.name,b:''});
     });
+  });
+  // Clinic
+  IS.cl.filter(function(s){return !s.x;}).forEach(function(src){
+    cats.push({k:src.k,n:src.n,grp:hospName('clinic'),b:src.b||''});
+  });
+  // Other Income (built-in)
+  IS.oi.forEach(function(src){
+    cats.push({k:src.k,n:src.n,grp:'Other Income',b:''});
+  });
+  // Custom Other Income
+  var customOI=st2.customOI||[];
+  customOI.forEach(function(src){
+    cats.push({k:src.k,n:src.n,grp:'Other Income',b:''});
   });
   return cats;
 }
@@ -2487,7 +2743,7 @@ function populateExpForm(){
       catSel.appendChild(og); lastGrp=cat.grp;
     }
     var opt=document.createElement('option'); opt.value=cat.k;
-    opt.textContent=(cat.e?cat.e+' ':'')+cat.n; catSel.appendChild(opt);
+    opt.textContent=cat.n; catSel.appendChild(opt);
   });
   var accSel=g('exp-acc'); if(!accSel) return;
   accSel.innerHTML='';
@@ -2834,7 +3090,7 @@ function renderExpTable(m){
       var tr=document.createElement('tr');
       var td1=document.createElement('td'); td1.className='rl';
       var nameDiv=document.createElement('div'); nameDiv.className='rn';
-      nameDiv.textContent=(src.e?src.e+' ':'')+src.n;
+      nameDiv.textContent=src.n;
       td1.appendChild(nameDiv);
       if(src.s){
         var sub=document.createElement('div'); sub.className='rs';
@@ -2886,7 +3142,7 @@ function editTxn(id){
       lastGrp=cat.grp;
     }
     var sel=(cat.k===txn.cat)?' selected':'';
-    var prefix=isIncome?(cat.b?cat.b.toUpperCase()+' — ':''):(cat.e?cat.e+' ':'');
+    var prefix=isIncome?(cat.b?cat.b.toUpperCase()+' — ':''):'';
     catOptsHtml+='<option value="'+cat.k+'"'+sel+'>'+prefix+cat.n+'</option>';
   });
   catOptsHtml+='</optgroup>';
@@ -3224,7 +3480,7 @@ function openAllOpeningBalances(){
     +'Enter the balance in each account as of today (or your chosen start date). This is a one-time setup step — afterwards, balances update automatically as you enter income, expenses and transfers.'
     +'</div>';
 
-  ['personal','wallet','spouse'].forEach(function(grp){
+  ['personal','wallet','sp_wallet','spouse'].forEach(function(grp){
     var label=grp==='personal'?'Personal':grp==='wallet'?'Broker Wallets':'Spouse';
     var accs=getAC().filter(function(a){return a.g===grp;});
     if(!accs.length) return;
@@ -3284,8 +3540,9 @@ function saveCustomNames(){
   if(val('set-n-bk2'))   st2.accounts.bk2=val('set-n-bk2');
 
   /* Broker wallets */
-  if(val('set-n-kite'))    st2.accounts.kite=val('set-n-kite');
-  if(val('set-n-coindcx')) st2.accounts.coindcx=val('set-n-coindcx');
+  if(val('set-n-kite'))     st2.accounts.kite=val('set-n-kite');
+  if(val('set-n-sp_kite'))  st2.accounts.sp_kite=val('set-n-sp_kite');
+  if(val('set-n-coindcx'))  st2.accounts.coindcx=val('set-n-coindcx');
 
   /* Spouse */
   if(val('set-spouse-label')) st2.labels.spouse=val('set-spouse-label');
@@ -3799,6 +4056,527 @@ function renderInlineTfLog(prefix){
   }).join('');
 }
 
+
+
+
+
+/* ══ TWO-ACCOUNT TRANSFER SUMMARY ════════════════════════════ */
+function populatePairSelects(){
+  var gaEl=g('pair-group-a'), gbEl=g('pair-group-b');
+  if(!gaEl||!gbEl) return;
+
+  var accs=getAC();
+
+  function buildCheckboxes(el, prefix, defaultIds){
+    el.innerHTML='';
+    accs.forEach(function(a){
+      var checked=defaultIds.indexOf(a.id)>=0?' checked':'';
+      var wrap=document.createElement('label');
+      wrap.style.cssText='display:flex;align-items:center;gap:6px;font-size:.8rem;cursor:pointer;padding:4px 6px;border-radius:6px;background:var(--surface)';
+      wrap.innerHTML='<input type="checkbox" id="'+prefix+'-'+a.id+'"'+checked+' onchange="renderGroupSummary()" style="accent-color:var(--blue);width:14px;height:14px"/>'
+        +'<span>'+accName(a.id)+'</span>';
+      el.appendChild(wrap);
+    });
+  }
+
+  // Default Group A = personal accounts (non-spouse, non-wallet)
+  var defaultA = accs.filter(function(a){return a.g==='personal';}).map(function(a){return a.id;});
+  // Default Group B = spouse accounts
+  var defaultB = accs.filter(function(a){return a.g==='spouse'||a.g==='sp_wallet';}).map(function(a){return a.id;});
+
+  buildCheckboxes(gaEl, 'ga', defaultA);
+  buildCheckboxes(gbEl, 'gb', defaultB);
+  renderGroupSummary();
+}
+
+function renderGroupSummary(){
+  var el=g('pair-summary'); if(!el) return;
+
+  // Collect checked accounts from each group
+  var accs=getAC();
+  var groupA=[], groupB=[];
+  accs.forEach(function(a){
+    var ca=g('ga-'+a.id), cb=g('gb-'+a.id);
+    if(ca&&ca.checked) groupA.push(a.id);
+    if(cb&&cb.checked) groupB.push(a.id);
+  });
+
+  if(!groupA.length||!groupB.length){
+    el.innerHTML='<div style="font-size:.8rem;color:var(--muted);text-align:center;padding:10px 0">Select at least one account in each group</div>';
+    return;
+  }
+
+  // Find overlap — same account in both groups
+  var overlap=groupA.filter(function(id){return groupB.indexOf(id)>=0;});
+  if(overlap.length){
+    el.innerHTML='<div style="font-size:.8rem;color:var(--red);text-align:center;padding:10px 0">⚠️ '+accName(overlap[0])+' is in both groups — remove it from one</div>';
+    return;
+  }
+
+  var log=S.tr||[];
+
+  // A→B: from any A account to any B account
+  var atob=[], btoa=[];
+  log.forEach(function(t){
+    var frInA=groupA.indexOf(t.fr)>=0, frInB=groupB.indexOf(t.fr)>=0;
+    var toInA=groupA.indexOf(t.to)>=0, toInB=groupB.indexOf(t.to)>=0;
+    if(frInA && toInB) atob.push(t);
+    if(frInB && toInA) btoa.push(t);
+  });
+
+  var totalAtoB=atob.reduce(function(s,t){return s+nv(t.amt);},0);
+  var totalBtoA=btoa.reduce(function(s,t){return s+nv(t.amt);},0);
+  var net=totalAtoB-totalBtoA;
+
+  // Group labels
+  var lblA = groupA.length===1 ? accName(groupA[0]) : groupA.map(accName).join(' + ');
+  var lblB = groupB.length===1 ? accName(groupB[0]) : groupB.map(accName).join(' + ');
+
+  if(!atob.length && !btoa.length){
+    el.innerHTML='<div style="font-size:.82rem;color:var(--muted);text-align:center;padding:14px 0">No transfers found between these groups</div>';
+    return;
+  }
+
+  var html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+    +'<div style="background:var(--red-lt);border:1px solid var(--red);border-radius:var(--r-sm);padding:10px;text-align:center">'
+      +'<div style="font-size:.68rem;color:var(--red);font-weight:600;margin-bottom:4px">Group A → Group B</div>'
+      +'<div style="font-size:1.1rem;font-weight:800;color:var(--red)">'+fmt(totalAtoB)+'</div>'
+      +'<div style="font-size:.68rem;color:var(--muted);margin-top:3px">'+atob.length+' transfer'+(atob.length!==1?'s':'')+'</div>'
+    +'</div>'
+    +'<div style="background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r-sm);padding:10px;text-align:center">'
+      +'<div style="font-size:.68rem;color:var(--green);font-weight:600;margin-bottom:4px">Group B → Group A</div>'
+      +'<div style="font-size:1.1rem;font-weight:800;color:var(--green)">'+fmt(totalBtoA)+'</div>'
+      +'<div style="font-size:.68rem;color:var(--muted);margin-top:3px">'+btoa.length+' transfer'+(btoa.length!==1?'s':'')+'</div>'
+    +'</div>'
+    +'</div>';
+
+  // Net line
+  var netLabel = net>0
+    ? 'Net: '+fmt(net)+' more sent from Group A to Group B'
+    : net<0
+      ? 'Net: '+fmt(Math.abs(net))+' more sent from Group B to Group A'
+      : 'Equal transfers both ways';
+  html+='<div style="background:var(--surface);border-radius:var(--r-sm);padding:9px 12px;font-size:.8rem;font-weight:600;color:'+(net!==0?'var(--blue)':'var(--muted)')+';text-align:center;margin-bottom:12px">'+netLabel+'</div>';
+
+  // Transaction list
+  var all=atob.map(function(t){return{t:t,dir:'atob'};})
+    .concat(btoa.map(function(t){return{t:t,dir:'btoa'};}))
+    .sort(function(a,b){return new Date(b.t.dt)-new Date(a.t.dt);});
+
+  html+='<div style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">All Transactions ('+all.length+')</div>'
+    +'<div style="max-height:240px;overflow-y:auto">';
+
+  html+=all.map(function(item){
+    var t=item.t, isAtoB=(item.dir==='atob');
+    var col=isAtoB?'var(--red)':'var(--green)';
+    return '<div onclick="editTransfer('+t.id+')" style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);cursor:pointer">'
+      +'<div style="width:28px;height:28px;border-radius:7px;background:'+(isAtoB?'var(--red-lt)':'var(--green-lt)')+';display:grid;place-items:center;font-size:13px;flex-shrink:0">🔄</div>'
+      +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:.8rem;font-weight:600">'+accName(t.fr)+' → '+accName(t.to)+'</div>'
+        +'<div style="font-size:.7rem;color:var(--muted)">'+formatDate(t.dt)+(t.note?' · '+t.note:'')+'</div>'
+      +'</div>'
+      +'<div style="font-size:.85rem;font-weight:700;color:'+col+';flex-shrink:0">'+(isAtoB?'-':'+')+fmt(t.amt)+'</div>'
+    +'</div>';
+  }).join('');
+  html+='</div>';
+
+  el.innerHTML=html;
+}
+
+/* Keep renderPairSummary as alias in case referenced elsewhere */
+function renderPairSummary(){ renderGroupSummary(); }
+
+
+/* ══ TAX TAB SWITCHER ══════════════════════════════════════════ */
+var taxTabMode = 'mine';
+function switchTaxTab(mode){
+  taxTabMode=mode;
+  var pm=g('tax-panel-mine'), pw=g('tax-panel-wife');
+  var bm=g('tax-tab-mine'), bw=g('tax-tab-wife');
+  if(mode==='mine'){
+    if(pm) pm.style.display='';
+    if(pw) pw.style.display='none';
+    if(bm){bm.style.background='var(--blue)';bm.style.color='#fff';}
+    if(bw){bw.style.background='none';bw.style.color='var(--muted)';}
+    autoFillTax(); saveS(); renderTax();
+  } else {
+    if(pm) pm.style.display='none';
+    if(pw) pw.style.display='';
+    if(bm){bm.style.background='none';bm.style.color='var(--muted)';}
+    if(bw){bw.style.background='var(--green)';bw.style.color='#fff';}
+    renderWifeTax();
+  }
+}
+
+/* ══ CASH INCOME TOGGLE ════════════════════════════════════════ */
+function getCashToggle(){
+  var el=g('tax-include-cash');
+  return el ? el.checked : true;
+}
+
+/* ══ PATCHED autoFillTax — respects cash toggle ════════════════ */
+/* Override the original autoFillTax to check the toggle */
+var _origAutoFillTax = autoFillTax;
+autoFillTax = function(){
+  if(!S.tax) S.tax={inc:{},ded:{},tds:{},adv:{},cg_stcg:0,cg_ltcg:0};
+  var includeCash = getCashToggle();
+  var taxInc={};
+  for(var m=0;m<12;m++){
+    var d=S.inc[m]||{};
+    Object.keys(INC_TO_TAX).forEach(function(incKey){
+      var taxKey=INC_TO_TAX[incKey];
+      if(!taxKey) return;
+      // Skip cash income if toggle is off
+      if(!includeCash && CASH_INC_KEYS.indexOf(incKey)>=0) return;
+      taxInc[taxKey]=(taxInc[taxKey]||0)+nv(d[incKey]);
+    });
+  }
+  var clinicExp=0;
+  for(var m=0;m<12;m++) clinicExp+=nv((S.inc[m]||{})['cl_ex']);
+  if(taxInc['ti_cl']) taxInc['ti_cl']=Math.max(0,taxInc['ti_cl']-clinicExp);
+
+  // Apply TDS gross-up: if a source has a TDS rate set, the stored amount
+  // is NET (what was received). Gross = Net / (1 - rate).
+  // TDS = Gross - Net. We update tax.inc with Gross and tax.tds with TDS.
+  if(!S.tdsRates) S.tdsRates={};
+  TDS_RATE_SOURCES.forEach(function(src){
+    var rate=nv(S.tdsRates[src.k]);
+    if(!rate||rate<=0) return;
+    var taxKey=INC_TO_TAX[src.k];
+    if(!taxKey) return;
+    var net=nv(taxInc[taxKey]);
+    if(!net) return;
+    var gross=Math.round(net/(1-rate));
+    var tds=gross-net;
+    taxInc[taxKey]=gross;
+    // Accumulate TDS into the right TDS bucket
+    var tdsKey=src.k.startsWith('h1')?'ts_pnh':src.k.startsWith('h2')?'ts_dkm':'ts_oth';
+    S.tax.tds[tdsKey]=(nv(S.tax.tds[tdsKey])||0)+tds;
+  });
+
+  Object.keys(taxInc).forEach(function(k){ S.tax.inc[k]=Math.round(taxInc[k]); });
+  var insTotal=0;
+  for(var m=0;m<12;m++) insTotal+=nv((S.exp[m]||{})['ep_in']);
+  if(insTotal>0) S.tax.ded['td_80d']=Math.min(Math.round(insTotal),75000);
+};
+
+/* ══ TDS RATE SETTINGS MODAL ═══════════════════════════════════
+   Let user set TDS % per income source. Enter net received,
+   app calculates gross and TDS automatically.
+═══════════════════════════════════════════════════════════════ */
+function openTDSRateSettings(){
+  if(!S.tdsRates) S.tdsRates={};
+  var html='<div style="font-size:.79rem;color:var(--muted);margin-bottom:12px">'
+    +'Set the TDS rate deducted by each payer. Enter what you actually receive — the app will calculate the gross amount and TDS for your tax return.'
+    +'</div>'
+    +'<div style="background:var(--surface);border-radius:var(--r-sm);padding:10px 12px;font-size:.79rem;margin-bottom:14px">'
+    +'<strong>Example:</strong> PNH pays Rs 50,000 but deducts 10% TDS (Rs 5,000). You receive Rs 45,000. '
+    +'Enter Rs 45,000 in Income tab + set TDS rate 10% here → app shows Rs 50,000 income and Rs 5,000 TDS credit.'
+    +'</div>';
+
+  TDS_RATE_SOURCES.forEach(function(src){
+    var cur=nv(S.tdsRates[src.k])||0;
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+      +'<div style="flex:1;font-size:.82rem"><div style="font-weight:600">'+src.n+'</div>'
+      +'<div style="font-size:.7rem;color:var(--muted)">Default: '+Math.round(src.defaultRate*100)+'%</div></div>'
+      +'<div style="display:flex;align-items:center;gap:4px">'
+        +'<input type="number" id="tdr-'+src.k+'" value="'+(cur*100||'')+'" placeholder="0"'
+          +' style="width:60px;text-align:right;border:1px solid var(--border);border-radius:6px;padding:5px 7px;font-size:.85rem;background:var(--surface)"/>'
+        +'<span style="font-size:.82rem;color:var(--muted)">%</span>'
+      +'</div>'
+    +'</div>';
+  });
+
+  html+='<button class="btn-p" style="margin-top:10px" onclick="saveTDSRates()">Save TDS Rates</button>';
+  openModal('TDS Rate Settings', html);
+}
+
+function saveTDSRates(){
+  if(!S.tdsRates) S.tdsRates={};
+  TDS_RATE_SOURCES.forEach(function(src){
+    var el=g('tdr-'+src.k);
+    if(!el) return;
+    var pct=nv(el.value);
+    S.tdsRates[src.k]=pct>0?pct/100:0;
+  });
+  saveS();
+  autoFillTax();
+  saveS();
+  closeModal();
+  renderTax();
+  toast('TDS rates saved — income grossed up ✓');
+}
+
+/* ══ WIFE'S TAX CALCULATION ════════════════════════════════════ */
+function renderWifeTax(){
+  if(!S.wifeTax) S.wifeTax={inc:{},ded:{},tds:{},cg_stcg:0,cg_ltcg:0};
+  var includeCash = g('wife-tax-include-cash') ? g('wife-tax-include-cash').checked : true;
+
+  function makeWifeRow(tbody, labelHtml, value, onInputFn, isAuto){
+    var tr=document.createElement('tr');
+    var td1=document.createElement('td'); td1.className='rl';
+    td1.innerHTML=labelHtml;
+    var td2=document.createElement('td'); td2.className='ric';
+    var wrap=document.createElement('div'); wrap.className='aiw';
+    if(isAuto) wrap.style.cssText='background:var(--green-lt);border-color:var(--green)';
+    var sym=document.createElement('span'); sym.className='sym'; sym.textContent='Rs';
+    var inp=document.createElement('input'); inp.className='ai';
+    inp.type='number'; inp.inputMode='decimal'; inp.placeholder='0';
+    inp.value=value||'';
+    if(isAuto) inp.style.color='var(--green)';
+    inp.addEventListener('input', onInputFn);
+    wrap.appendChild(sym); wrap.appendChild(inp);
+    td2.appendChild(wrap); tr.appendChild(td1); tr.appendChild(td2);
+    tbody.appendChild(tr);
+  }
+
+  /* Income */
+  var incTb=g('wife-tax-inc-body'); if(!incTb) return;
+  incTb.innerHTML=''; var grossInc=0;
+  WIFE_INC.forEach(function(src){
+    var v=nv(S.wifeTax.inc[src.k]||0); grossInc+=v;
+    var label='<div class="rn">'+src.n+'</div>'+(src.s?'<div class="rs">'+src.s+'</div>':'');
+    makeWifeRow(incTb, label, v, function(){
+      S.wifeTax.inc[src.k]=nv(this.value); saveS(); calcWifeTax();
+    });
+  });
+  st('wife-tax-gross', fmtF(grossInc));
+
+  /* Deductions */
+  var dedTb=g('wife-tax-ded-body'); if(!dedTb) return;
+  dedTb.innerHTML=''; var totalDed=0;
+  WIFE_DED.forEach(function(src){
+    var v=nv(S.wifeTax.ded[src.k]||0); totalDed+=v;
+    var label='<div class="rn">'+src.n+'</div>'+(src.s?'<div class="rs">'+src.s+'</div>':'');
+    makeWifeRow(dedTb, label, v, function(){
+      S.wifeTax.ded[src.k]=nv(this.value); saveS(); calcWifeTax();
+    });
+  });
+  st('wife-tax-ded-tot', fmtF(totalDed));
+
+  /* TDS */
+  var tdsTb=g('wife-tds-body'); if(!tdsTb) return;
+  tdsTb.innerHTML=''; var totalTds=0;
+  WIFE_TDS.forEach(function(src){
+    var v=nv(S.wifeTax.tds[src.k]||0); totalTds+=v;
+    var label='<div class="rn">'+src.n+'</div>'+(src.s?'<div class="rs">'+src.s+'</div>':'');
+    makeWifeRow(tdsTb, label, v, function(){
+      S.wifeTax.tds[src.k]=nv(this.value); saveS(); calcWifeTax();
+    });
+  });
+  st('wife-tds-tot', fmtF(totalTds));
+
+  calcWifeTax();
+}
+
+function calcWifeTax(){
+  if(!S.wifeTax) return;
+  var gross=WIFE_INC.reduce(function(t,s){return t+nv(S.wifeTax.inc[s.k]||0);},0);
+  var ded=Math.min(nv(S.wifeTax.ded['wd_80c']||0),150000)
+        + Math.min(nv(S.wifeTax.ded['wd_80d']||0),25000)
+        + Math.min(nv(S.wifeTax.ded['wd_std']||0),75000)
+        + nv(S.wifeTax.ded['wd_oth']||0);
+  var oldTaxable=Math.max(0, gross-ded);
+  var newTaxable=Math.max(0, gross-75000);
+
+  function calcSlab(inc, slabs){
+    var tax=0;
+    slabs.forEach(function(s){
+      if(inc>s.from) tax+=(Math.min(inc,s.to||Infinity)-s.from)*s.rate;
+    });
+    return Math.round(tax*1.04);
+  }
+  var oldSlabs=[{from:0,to:250000,rate:0},{from:250000,to:500000,rate:0.05},{from:500000,to:1000000,rate:0.2},{from:1000000,rate:0.3}];
+  var newSlabs=[{from:0,to:300000,rate:0},{from:300000,to:700000,rate:0.05},{from:700000,to:1000000,rate:0.1},{from:1000000,to:1200000,rate:0.15},{from:1200000,to:1500000,rate:0.2},{from:1500000,rate:0.3}];
+
+  var oldTax=oldTaxable<=500000?0:calcSlab(oldTaxable,oldSlabs);
+  var newTax=newTaxable<=700000?0:calcSlab(newTaxable,newSlabs);
+  var tds=WIFE_TDS.reduce(function(t,s){return t+nv(S.wifeTax.tds[s.k]||0);},0);
+  var best=Math.min(oldTax,newTax);
+
+  st('wife-old-taxable',fmtF(oldTaxable)); st('wife-old-tax',fmtF(oldTax));
+  st('wife-new-taxable',fmtF(newTaxable)); st('wife-new-tax',fmtF(newTax));
+  var rec=oldTax<=newTax?'Old Regime':'New Regime';
+  var saving=Math.abs(oldTax-newTax);
+  st('wife-tax-rec-val',rec);
+  st('wife-tax-rec-note', saving>0?'Saves Rs '+Math.round(saving).toLocaleString('en-IN')+' vs other regime':'Both regimes give same tax');
+
+  // CSS toggle for slider
+  var el=g('wife-tax-include-cash');
+  if(el) updateToggleStyle(el);
+}
+
+function updateToggleStyle(chk){
+  var span=chk&&chk.nextElementSibling;
+  if(!span) return;
+  var dot=span.querySelector('span');
+  if(chk.checked){
+    span.style.background='var(--green)';
+    if(dot) dot.style.left='21px';
+  } else {
+    span.style.background='var(--border)';
+    if(dot) dot.style.left='3px';
+  }
+}
+
+
+/* ══ MANAGE CUSTOM ACCOUNTS ════════════════════════════════════ */
+function addCustomAccount(){
+  var name=(g('new-acc-name').value||'').trim();
+  if(!name){toast('Enter account name');return;}
+  var type=g('new-acc-type').value||'bank';
+  var grp=g('new-acc-group').value||'personal';
+  var st2=getSettings();
+  if(!st2.customAccounts) st2.customAccounts=[];
+  var id='ca_'+Date.now();
+  st2.customAccounts.push({id:id,n:name,t:type,g:grp,ic:name.slice(0,3),s:type});
+  S.settings=st2;
+  if(!S.acc[id]) S.acc[id]={bal:0,note:''};
+  saveS();
+  AC=getAC();
+  g('new-acc-name').value='';
+  renderSettings();
+  renderAcc();
+  populateIncForm(); populateExpForm(); populateTfSelects(); populatePairSelects();
+  updateDash();
+  toast('"'+name+'" account added ✓');
+}
+
+function removeCustomAccount(id){
+  var st2=getSettings();
+  if(!st2.customAccounts) return;
+  var acc=st2.customAccounts.find(function(a){return a.id===id;});
+  if(!acc) return;
+  if(!confirm('Remove "'+acc.n+'"? Balance will be cleared.')) return;
+  st2.customAccounts=st2.customAccounts.filter(function(a){return a.id!==id;});
+  delete S.acc[id];
+  S.settings=st2;
+  saveS();
+  AC=getAC();
+  renderSettings(); renderAcc();
+  populateIncForm(); populateExpForm(); populateTfSelects(); populatePairSelects();
+  updateDash();
+  toast('Account removed');
+}
+
+function renderCustomAccList(){
+  var el=g('custom-accs-list'); if(!el) return;
+  var st2=getSettings();
+  var list=st2.customAccounts||[];
+  if(!list.length){
+    el.innerHTML='<div style="font-size:.78rem;color:var(--muted);margin-bottom:6px">No custom accounts yet — your default accounts (SBI, BoB, HDFC etc.) are managed above via Customise Names.</div>';
+    return;
+  }
+  el.innerHTML=list.map(function(a){
+    var bal=nv(S.acc[a.id]&&S.acc[a.id].bal);
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="flex:1"><div style="font-size:.83rem;font-weight:600">'+a.n+'</div>'
+      +'<div style="font-size:.7rem;color:var(--muted)">'+a.t+' · '+a.g+' · Balance: '+fmt(bal)+'</div></div>'
+      +'<button onclick="removeCustomAccount(\''+a.id+'\')" style="color:var(--red);font-size:.75rem;background:none;border:none;cursor:pointer;padding:3px 6px">✕ Remove</button>'
+    +'</div>';
+  }).join('');
+}
+
+/* ══ MANAGE EXTRA HOSPITALS ════════════════════════════════════ */
+function addExtraHospital(){
+  var name=(g('new-hosp-name').value||'').trim();
+  if(!name){toast('Enter hospital name');return;}
+  var st2=getSettings();
+  if(!st2.extraHospitals) st2.extraHospitals=[];
+  var id='eh_'+Date.now();
+  // Create standard income sources for this hospital
+  var sources=[
+    {k:id+'_fx',n:'Fixed / Salary'},
+    {k:id+'_op',n:'OPD Share'},
+    {k:id+'_ip',n:'IPD Share'},
+    {k:id+'_ot',n:'Other'},
+  ];
+  st2.extraHospitals.push({id:id,name:name,sources:sources});
+  S.settings=st2;
+  saveS();
+  g('new-hosp-name').value='';
+  renderSettings();
+  populateIncForm();
+  toast('"'+name+'" hospital added ✓ — income sources now visible in Income tab');
+}
+
+function removeExtraHospital(id){
+  var st2=getSettings();
+  if(!st2.extraHospitals) return;
+  var h=st2.extraHospitals.find(function(x){return x.id===id;});
+  if(!h) return;
+  if(!confirm('Remove "'+h.name+'"? Income entries from this hospital remain in your records.')) return;
+  st2.extraHospitals=st2.extraHospitals.filter(function(x){return x.id!==id;});
+  S.settings=st2;
+  saveS();
+  renderSettings(); populateIncForm();
+  toast('Hospital removed');
+}
+
+function renderExtraHospList(){
+  var el=g('extra-hosp-list'); if(!el) return;
+  var st2=getSettings();
+  var list=st2.extraHospitals||[];
+  if(!list.length){
+    el.innerHTML='<div style="font-size:.78rem;color:var(--muted);margin-bottom:6px">No extra hospitals added yet.</div>';
+    return;
+  }
+  el.innerHTML=list.map(function(h){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="flex:1"><div style="font-size:.83rem;font-weight:600">'+h.name+'</div>'
+      +'<div style="font-size:.7rem;color:var(--muted)">'+(h.sources||[]).map(function(s){return s.n;}).join(', ')+'</div></div>'
+      +'<button onclick="removeExtraHospital(\''+h.id+'\')" style="color:var(--red);font-size:.75rem;background:none;border:none;cursor:pointer;padding:3px 6px">✕ Remove</button>'
+    +'</div>';
+  }).join('');
+}
+
+/* ══ MANAGE CUSTOM OTHER INCOME ════════════════════════════════ */
+function addCustomOI(){
+  var name=(g('new-oi-name').value||'').trim();
+  if(!name){toast('Enter income source name');return;}
+  var st2=getSettings();
+  if(!st2.customOI) st2.customOI=[];
+  var key='coi_'+Date.now();
+  st2.customOI.push({k:key,n:name});
+  S.settings=st2;
+  saveS();
+  g('new-oi-name').value='';
+  renderSettings();
+  populateIncForm();
+  toast('"'+name+'" added to Other Income ✓');
+}
+
+function removeCustomOI(key){
+  var st2=getSettings();
+  if(!st2.customOI) return;
+  var src=st2.customOI.find(function(s){return s.k===key;});
+  if(!src) return;
+  if(!confirm('Remove "'+src.n+'"? Existing entries remain in your records.')) return;
+  st2.customOI=st2.customOI.filter(function(s){return s.k!==key;});
+  S.settings=st2;
+  saveS();
+  renderSettings(); populateIncForm();
+  toast('Income source removed');
+}
+
+function renderCustomOIList(){
+  var el=g('custom-oi-list'); if(!el) return;
+  var st2=getSettings();
+  var list=st2.customOI||[];
+  if(!list.length){
+    el.innerHTML='<div style="font-size:.78rem;color:var(--muted);margin-bottom:6px">No custom income sources yet.</div>';
+    return;
+  }
+  el.innerHTML=list.map(function(s){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="flex:1;font-size:.83rem;font-weight:600">'+s.n+'</div>'
+      +'<button onclick="removeCustomOI(\''+s.k+'\')" style="color:var(--red);font-size:.75rem;background:none;border:none;cursor:pointer;padding:3px 6px">✕ Remove</button>'
+    +'</div>';
+  }).join('');
+}
+
+/* ══ PATCH renderSettings to call all three list renderers ════ */
+
 function sv(id,btn){
   document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
   document.querySelectorAll('.nav-tab').forEach(function(t){t.classList.remove('active');});
@@ -3810,8 +4588,8 @@ function sv(id,btn){
   if(id==='investments'){renderInv();}
   if(id==='opd')renderOPD();
   if(id==='loans')renderLoans();
-  if(id==='tax'){autoFillTax();saveS();renderTax();}
-  if(id==='settings')renderSettings();
+  if(id==='tax'){autoFillTax();saveS();renderTax();setTimeout(function(){var el=g('tax-include-cash');if(el){updateToggleStyle(el);el.addEventListener('change',function(){updateToggleStyle(this);});}},100);}
+  if(id==='settings'){renderSettings();}
   if(id==='dashboard')updateDash();
 }
 
@@ -3844,9 +4622,15 @@ var CURRENT_FY = localStorage.getItem('dw_fy') || defaultFYKey();
 
 /* Backward-compatible lookup objects, now built from functions
    instead of being hardcoded, so any FY key works. */
-var FY_MAP = new Proxy({}, { get: function(t,key){ return fyShortLabel(key); } });
-var FY_YEAR_MAP = new Proxy({}, { get: function(t,key){ return fyFullLabel(key); } });
-var FY_YEAR_STARTS = new Proxy({}, { get: function(t,key){ return fyKeyToStartYear(key); } });
+/* Proxy replaced with plain objects + accessor functions
+   for compatibility with Samsung Browser / older Android WebView */
+var FY_MAP = {};
+var FY_YEAR_MAP = {};
+var FY_YEAR_STARTS = {};
+/* These are populated dynamically so we use wrapper functions instead */
+function getFYMap(key){ return fyShortLabel(key||CURRENT_FY); }
+function getFYYearMap(key){ return fyFullLabel(key||CURRENT_FY); }
+function getFYYearStarts(key){ return fyKeyToStartYear(key||CURRENT_FY); }
 
 /* Generate a working range of FY keys: 6 years back, 10 years
    forward from whichever year the app is actually opened in. */
@@ -3873,10 +4657,10 @@ function populateFYSelect(){
 function getFYKey(){return 'dw4_'+CURRENT_FY;}
 
 function updateFYDisplay(){
-  var lbl = FY_MAP[CURRENT_FY] || '25-26';
+  var lbl = getFYMap(CURRENT_FY) || '25-26';
   var btn = g('fy-btn'); if(btn) btn.textContent = 'FY '+lbl;
   document.querySelectorAll('.fy-lbl').forEach(function(el){ el.textContent = 'FY '+lbl; });
-  var yr = FY_YEAR_STARTS[CURRENT_FY] || 2025;
+  var yr = getFYYearStarts(CURRENT_FY) || 2025;
   var MoNms = ["April","May","June","July","August","September","October","November","December","January","February","March"];
   var MoYrs = [yr,yr,yr,yr,yr,yr,yr,yr,yr,yr+1,yr+1,yr+1];
   ['dashMonth','incMonth','expMonth'].forEach(function(id){
@@ -3918,7 +4702,7 @@ function applyFY(){
   populateExpForm();
   populateTfSelects();
   updateDash();
-  toast('Switched to ' + (FY_YEAR_MAP[CURRENT_FY]||CURRENT_FY));
+  toast('Switched to ' + (getFYYearMap(CURRENT_FY)||CURRENT_FY));
 }
 
 function saveS(){
@@ -4134,6 +4918,7 @@ setCurrentMonth();
 populateIncForm();
 populateExpForm();
 populateTfSelects();
+populatePairSelects();
 g('opd-date').value=tod();
 g('tf-date').value=tod();
 updateDash();
