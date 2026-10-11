@@ -598,9 +598,35 @@ function totalExpense(fy){ return sum(fyFilter(State.expenses,fy), expenseCost);
 function loanPrincipalPaid(fy){ return sum(fyFilter(State.expenses,fy), expensePrincipal); }
 /* monthly interest estimate on the current balance (used only when the interest part is left blank) */
 function loanInterestEstimate(l){ return Math.round(loanOutstandingValue(l)*num(l.rate)/1200); }
-function ensureLoanCat(){
-  for(var i=0;i<State.expenseCats.length;i++){ if(/^loan emi$/i.test(State.expenseCats[i].name)){ State.expenseCats[i].archived=false; return State.expenseCats[i].id; } }
-  var c=cat("Loan EMI","loan","#b58be0"); State.expenseCats.push(c); return c.id;
+/* ---- loan-linked expense categories: each loan has an expense category ("EMI \u2013 Home loan").
+   Choosing that category anywhere (form, quick entry, statement import, rules) records the payment against the loan. ---- */
+function loanOfCat(catId){ var c=catId?byId(State.expenseCats,catId):null; return (c && c.loanId && byId(State.loans,c.loanId)) ? c.loanId : ""; }
+function loanCatFor(loanId){
+  var i, c;
+  for(i=0;i<State.expenseCats.length;i++){ c=State.expenseCats[i]; if(c.loanId===loanId && !c.archived) return c.id; }
+  for(i=0;i<State.expenseCats.length;i++){ c=State.expenseCats[i]; if(c.loanId===loanId){ c.archived=false; return c.id; } }
+  var l=byId(State.loans,loanId);
+  /* deterministic id so two devices creating it independently converge to ONE category when they sync */
+  var nc={ id:"cat_loan_"+loanId, name:"EMI \u2013 "+(l?l.name:"Loan"), group:"loan", color:"#b58be0", loanId:loanId, archived:false, created:nowISO() };
+  State.expenseCats.push(nc); return nc.id;
+}
+/* keep one category per open loan; follow loan renames; retire categories of deleted loans. Returns true if anything changed. */
+function syncLoanCategories(){
+  var changed=false, i, c, l, has={};
+  for(i=0;i<State.expenseCats.length;i++){ c=State.expenseCats[i]; if(!c.loanId) continue;
+    l=byId(State.loans,c.loanId);
+    if(!l){ if(!c.archived){ c.archived=true; changed=true; } continue; }
+    has[c.loanId]=true;
+    if(c.id==="cat_loan_"+l.id && c.name!=="EMI \u2013 "+l.name){ c.name="EMI \u2013 "+l.name; changed=true; }
+  }
+  for(i=0;i<State.loans.length;i++){ l=State.loans[i]; if(!l.closed && !has[l.id]){ loanCatFor(l.id); changed=true; } }
+  return changed;
+}
+/* one rule for every way an expense is saved: a loan category implies the loan, and a loan implies its category */
+function applyLoanLink(d){
+  if(!d.loanId){ var lid=loanOfCat(d.catId); if(lid) d.loanId=lid; }
+  if(d.loanId && loanOfCat(d.catId)!==d.loanId) d.catId=loanCatFor(d.loanId);
+  return d;
 }
 function activeLoanOpts(includeId){ var o=[]; for(var i=0;i<State.loans.length;i++){ var l=State.loans[i]; if(l.closed && l.id!==includeId) continue; o.push({value:l.id,label:l.name+" (owes "+money(loanOutstandingValue(l),true)+")"}); } return o; }
 function cashIncomeTotal(fy,owner){ return sum(incomeFor(fy,owner), function(x){return x.cash?num(x.amount):0;}); }
@@ -1078,11 +1104,19 @@ function quickEntry(kind){
       if(!(p>0)){ toast("Enter an amount"); amt.focus(); return; }
       if(!pick.catId){ toast("Pick a category"); return; }
       var d={ id:uid(isInc?"inc":"exp"), amount:p, date:dt.value||todayStr(), catId:pick.catId, accountId:accSel.value, note:nt.value, created:nowISO() };
+      var emiMsg="";
       if(isInc){ d.owner=ownerOfAccount(d.accountId); d.cash=false; d.tdsRate=0; State.income.unshift(d); }
-      else State.expenses.unshift(d);
+      else {
+        applyLoanLink(d);
+        if(d.loanId){ var ql=byId(State.loans,d.loanId); if(!d.accountId && ql) d.accountId=ql.linkedAccountId||"";
+          d.interest=ql?Math.min(p,loanInterestEstimate(ql)):0;
+          emiMsg=" \u00B7 "+(ql?ql.name:"loan")+" reduced by "+money(p-d.interest,true)+" (interest est. "+money(d.interest,true)+")"; }
+        State.expenses.unshift(d);
+        if(d.loanId){ var ql2=byId(State.loans,d.loanId); if(ql2 && loanOutstandingValue(ql2)<=0) ql2.closed=true; }
+      }
       DEV.quick[kind+"Cat"]=pick.catId; DEV.quick[kind+"Acc"]=accSel.value; devSave();
       save(isInc?"income.quick":"expense.quick",rupeesStr(p)); closeModal();
-      toast((isInc?"Income ":"Expense ")+money(p)+" saved"); render();
+      toast((isInc?"Income ":"Expense ")+money(p)+" saved"+emiMsg); render();
     };
     row.appendChild(more); row.appendChild(ok); w.appendChild(row);
     setTimeout(function(){ amt.focus(); },120);
@@ -1333,18 +1367,18 @@ function addExpense(existing){
       {key:"catId",label:"Category",type:"select",options:catOpts(State.expenseCats),placeholder:"Select category"},
       {key:"accountId",label:"Paid from account",type:"select",options:accOpts(),placeholder:"Select account"},
       {key:"loanId",label:"Loan EMI / repayment for",type:"select",options:[{value:"",label:"Not a loan payment"}].concat(activeLoanOpts(existing?existing.loanId:"")),
-        hint:"Pick a loan and this one entry also pays down that loan \u2014 no separate repayment needed."},
+        hint:"Or just pick the loan's \u201CEMI \u2013 \u2026\u201D category above. Either way this one entry also pays down the loan \u2014 no separate repayment needed."},
       {key:"interest",label:"Interest part (loan only)",type:"money",placeholder:"blank = estimate from rate",
         hint:"Only the principal reduces the loan; only the interest counts as an expense."},
       {key:"note",label:"Note",type:"text",placeholder:"e.g. clinic rent, supplies"}
     ],
     values: existing||prefill||{},
-    validate:function(d){ if(!d.catId && !d.loanId) return "Please pick a category"; if(d.loanId && d.interest!=="" && num(d.interest)>num(d.amount)) return "Interest can't be more than the amount"; return ""; },
+    validate:function(d){ if(!d.catId && !d.loanId) return "Please pick a category (or a loan)"; if(d.loanId && d.interest!=="" && num(d.interest)>num(d.amount)) return "Interest can't be more than the amount"; return ""; },
     onSave:function(d){
       var est=false;
+      applyLoanLink(d);
       if(d.loanId){
         var ln=byId(State.loans,d.loanId);
-        if(!d.catId) d.catId=ensureLoanCat();
         if(!d.accountId && ln) d.accountId=ln.linkedAccountId||"";
         if(d.interest==="" && ln){ d.interest=Math.min(num(d.amount),loanInterestEstimate(ln)); est=true; }
         d.interest=num(d.interest);
@@ -1912,9 +1946,10 @@ function addLoan(existing){
     ],
     values: existing||{type:"home"},
     onSave:function(d){
-      if(existing){ for(var k in d) existing[k]=d[k]; save("loan.edit",d.name); }
-      else { d.id=uid("loan"); d.closed=false; d.created=nowISO(); State.loans.push(d); save("loan.add",d.name); }
-      toast("Loan saved"); render();
+      if(existing){ for(var k in d) existing[k]=d[k]; }
+      else { d.id=uid("loan"); d.closed=false; d.created=nowISO(); State.loans.push(d); }
+      syncLoanCategories(); save(existing?"loan.edit":"loan.add",d.name);
+      toast(existing?"Loan saved":"Loan saved \u00B7 expense category \u201C"+nameOf(State.expenseCats,loanCatFor(d.id))+"\u201D now records EMIs against it"); render();
     }
   });
 }
@@ -1926,7 +1961,7 @@ function loanActions(l){
     {label:"\u270E  Edit loan",fn:function(){ addLoan(l); }},
     {label:"\u25A6  View amortization",fn:function(){ amortization(l); }},
     {label:(l.closed?"\u21BA  Reopen":"\u2713  Mark closed"),fn:function(){ l.closed=!l.closed; save("loan.close"); render(); }},
-    {label:"\u2716  Delete",danger:true,fn:function(){ confirmDo("Delete "+l.name+"? Its payment records (including EMI expenses linked to it) are removed too.",function(){ var lg=loanLedgerFor(l.id); for(var i=0;i<lg.length;i++) removeFrom(State.loanLedger,lg[i].id); var le=loanExpensesFor(l.id); for(var j=0;j<le.length;j++) removeFrom(State.expenses,le[j].id); removeFrom(State.loans,l.id); save("loan.delete"); render(); }); }}
+    {label:"\u2716  Delete",danger:true,fn:function(){ confirmDo("Delete "+l.name+"? Its payment records (including EMI expenses linked to it) are removed too.",function(){ var lg=loanLedgerFor(l.id); for(var i=0;i<lg.length;i++) removeFrom(State.loanLedger,lg[i].id); var le=loanExpensesFor(l.id); for(var j=0;j<le.length;j++) removeFrom(State.expenses,le[j].id); removeFrom(State.loans,l.id); syncLoanCategories(); save("loan.delete"); render(); }); }}
   ]);
 }
 function recordRepayment(l){
@@ -1942,7 +1977,7 @@ function recordRepayment(l){
     onSave:function(d){
       /* recorded ONCE, as an expense linked to the loan (appears in Expenses, the account and the loan) */
       var intr=(d.interest==="")?Math.min(num(d.amount),loanInterestEstimate(l)):num(d.interest);
-      State.expenses.unshift({ id:uid("exp"), amount:num(d.amount), date:d.date, catId:ensureLoanCat(), accountId:d.accountId, loanId:l.id, interest:intr, note:"EMI \u2014 "+l.name, created:nowISO() });
+      State.expenses.unshift({ id:uid("exp"), amount:num(d.amount), date:d.date, catId:loanCatFor(l.id), accountId:d.accountId, loanId:l.id, interest:intr, note:"EMI \u2014 "+l.name, created:nowISO() });
       if(loanOutstandingValue(l)<=0) l.closed=true;
       save("loan.repay",d.amount); toast("Repayment recorded \u00B7 principal "+money(num(d.amount)-intr,true)+", interest "+money(intr,true)); render();
     }
@@ -2575,7 +2610,7 @@ function catManager(list,group){
     var r=el("div","row");
     var ic=el("div","ic","\u25CF"); ic.style.color=c.color||"#d9b35a"; ic.style.background="rgba(255,255,255,.05)";
     r.appendChild(ic);
-    r.appendChild(el("div","mid","<div class='t'>"+esc(c.name)+(c.archived?" (archived)":"")+"</div><div class='s'>"+esc(c.group||"")+"</div>"));
+    r.appendChild(el("div","mid","<div class='t'>"+esc(c.name)+(c.archived?" (archived)":"")+"</div><div class='s'>"+esc(c.group||"")+(c.loanId&&byId(State.loans,c.loanId)?(" \u00B7 \u2696 linked to "+esc(nameOf(State.loans,c.loanId))+" \u2014 entries pay down this loan"):"")+"</div>"));
     var k=el("button","kebab","\u22EE"); k.onclick=function(){ rowMenu([
       {label:"\u270E  Rename / edit",primary:true,fn:function(){ editCategory(list,c); }},
       {label:(c.archived?"\u21BA  Restore":"\u25A1  Archive"),fn:function(){ c.archived=!c.archived; save("cat.archive"); render(); }},
@@ -2592,10 +2627,15 @@ function editCategory(list,existing,group){
       {key:"name",label:"Name",type:"text",required:true},
       {key:"group",label:"Group",type:"text",width:"half",def:(existing?existing.group:(group||""))},
       {key:"color",label:"Color (hex)",type:"text",width:"half",def:(existing?existing.color:"#d9b35a")}
-    ],
+    ].concat(list===State.expenseCats ? [{key:"loanId",label:"Link to loan",type:"select",
+        options:[{value:"",label:"Not a loan category"}].concat(State.loans.map(function(l){ return {value:l.id,label:l.name}; })),
+        hint:"Expenses in a loan category are that loan's EMIs: principal reduces the loan, only interest counts as an expense."}] : []),
     values: existing||{},
-    onSave:function(d){ if(existing){ existing.name=d.name; existing.group=d.group; existing.color=d.color; save("cat.edit"); }
-      else { list.push({id:uid("cat"),name:d.name,group:d.group,color:d.color||"#d9b35a",archived:false,created:nowISO()}); save("cat.add"); }
+    onSave:function(d){
+      var isExp=(list===State.expenseCats), lid=isExp?(d.loanId||""):"";
+      if(existing){ existing.name=d.name; existing.group=d.group; existing.color=d.color;
+        if(isExp){ if(lid) existing.loanId=lid; else delete existing.loanId; } save("cat.edit"); }
+      else { var nc={id:uid("cat"),name:d.name,group:d.group,color:d.color||"#d9b35a",archived:false,created:nowISO()}; if(lid) nc.loanId=lid; list.push(nc); save("cat.add"); }
       toast("Saved"); render(); }
   });
 }
@@ -3297,7 +3337,7 @@ function statementPreview(ctx,res){
     var fp=fingerprint(ctx.accId,t.date,dir==="debit"?-amt:amt,t.narration);
     var r={ n:i+1, include:true, sel:false, date:t.date, amount:amt, dir:dir, type:(dir==="debit"?"expense":"income"),
       catId:"", accountId:ctx.accId, other:"", note:t.narration.slice(0,140), narration:t.narration, ref:t.ref||"", balance:t.balance, check:t.check, fp:fp, dup:null };
-    var hit=ruleMatch(t.narration,dir); if(hit){ r.catId=hit.catId; r.rule=hit.pattern; }
+    var hit=ruleMatch(t.narration,dir); if(hit){ r.catId=hit.catId; r.rule=hit.pattern; if(dir==="debit" && loanOfCat(hit.catId)){ r.type="loan"; r.loanId=loanOfCat(hit.catId); } }
     /* a debit equal to an open loan's EMI is suggested as that loan's EMI (you can change it) */
     if(dir==="debit"){ for(var li=0;li<State.loans.length;li++){ var lo=State.loans[li]; if(!lo.closed && num(lo.emi)>0 && num(lo.emi)===amt){ r.type="loan"; r.loanId=lo.id; r.loanAuto=true; break; } } }
     /* duplicate: against existing data (each existing entry absorbs one row) or an earlier row of this file */
@@ -3376,12 +3416,12 @@ function statementPreview(ctx,res){
       g.appendChild(d); g.appendChild(a); g.appendChild(ty); c.appendChild(g);
       var g2=el("div","g2x"); var cs=catSelect(r), as=accSelect(r);
       g2.appendChild(cs); g2.appendChild(as); c.appendChild(g2);
-      cs.onchange=function(){ r.catId=cs.value; };
+      cs.onchange=function(){ r.catId=cs.value; var lid=loanOfCat(r.catId); if(lid && r.dir==="debit"){ r.type="loan"; r.loanId=lid; drawList(); } };
       var setTarget=function(val){ if(r.type==="transfer") r.other=val; else if(r.type==="loan") r.loanId=val; else r.accountId=val; updateSummary(); };
       as.onchange=function(){ setTarget(as.value); };
       ty.onchange=function(){ r.type=ty.value; r.catId=""; r.loanAuto=false; if(r.type==="loan" && !r.loanId){ var lo=activeLoanOpts(""); if(lo.length===1) r.loanId=lo[0].value; }
         var cs2=catSelect(r), as2=accSelect(r); g2.innerHTML=""; g2.appendChild(cs2); g2.appendChild(as2);
-        cs2.onchange=function(){ r.catId=cs2.value; }; as2.onchange=function(){ setTarget(as2.value); }; updateSummary(); };
+        cs2.onchange=function(){ r.catId=cs2.value; var lid=loanOfCat(r.catId); if(lid && r.dir==="debit"){ r.type="loan"; r.loanId=lid; drawList(); } }; as2.onchange=function(){ setTarget(as2.value); }; updateSummary(); };
       var nr=el("div"); nr.style.cssText="display:flex;gap:6px";
       var nt=el("input","input sm"); nt.value=r.note; nt.placeholder="Note"; nt.onchange=function(){ r.note=nt.value; };
       var rb=el("button","btn sm ghost","★"); rb.title="Make a rule from this row"; rb.style.flex="0 0 auto";
@@ -3440,7 +3480,8 @@ function statementPreview(ctx,res){
     bNone.onclick=function(){ for(var j=0;j<rows.length;j++) rows[j].sel=false; drawList(); };
     bExcl.onclick=function(){ var n=0; for(var j=0;j<rows.length;j++){ if(rows[j].sel){ rows[j].include=false; n++; } } toast(n+" excluded"); drawList(); };
     bCat.onchange=function(){ var cid=bCat.value; if(!cid) return; var isInc=!!byId(State.incomeCats,cid), n=0;
-      for(var j=0;j<rows.length;j++){ var r=rows[j]; if(!r.sel) continue; r.type=isInc?"income":"expense"; r.catId=cid; n++; }
+      var blid=loanOfCat(cid);
+      for(var j=0;j<rows.length;j++){ var r=rows[j]; if(!r.sel) continue; if(blid && r.dir==="debit"){ r.type="loan"; r.loanId=blid; } else r.type=isInc?"income":"expense"; r.catId=cid; n++; }
       bCat.value=""; toast(n?("Category set on "+n+" row(s)"):"Select rows first (blue tick)"); drawList(); };
     filt.oninput=function(){ drawList(); };
     more.onclick=function(){ shown+=150; drawList(); };
@@ -3464,9 +3505,9 @@ function commitStatement(ctx,res,keep,openingAdj){
     var base={ amount:r.amount, date:r.date, note:r.note, narration:r.narration, fp:r.fp, batchId:batch.id, created:now };
     if(r.ref) base.ref=r.ref;
     if(r.type==="income"){ base.id=uid("inc"); base.catId=r.catId; base.accountId=r.accountId; base.owner=ownerOfAccount(r.accountId); base.cash=false; base.tdsRate=0; State.income.unshift(base); }
-    else if(r.type==="expense"){ base.id=uid("exp"); base.catId=r.catId; base.accountId=r.accountId; State.expenses.unshift(base); }
-    else if(r.type==="loan"){ var ln=byId(State.loans,r.loanId);
-      base.id=uid("exp"); base.catId=ensureLoanCat(); base.accountId=r.accountId; base.loanId=r.loanId;
+    else if(r.type==="expense" && !loanOfCat(r.catId)){ base.id=uid("exp"); base.catId=r.catId; base.accountId=r.accountId; State.expenses.unshift(base); }
+    else if(r.type==="loan" || r.type==="expense"){ if(r.type==="expense") r.loanId=loanOfCat(r.catId); var ln=byId(State.loans,r.loanId);
+      base.id=uid("exp"); base.catId=loanCatFor(r.loanId); base.accountId=r.accountId; base.loanId=r.loanId;
       base.interest=ln?Math.min(r.amount,loanInterestEstimate(ln)):0;   /* rows are in date order, so each estimate uses the balance after the previous EMI */
       State.expenses.unshift(base); if(ln && loanOutstandingValue(ln)<=0) ln.closed=true; }
     else { base.id=uid("tr"); base.fpAcc=ctx.accId;
@@ -4334,6 +4375,7 @@ function boot(){
   $("fyBtn").onclick=openFYPicker;
   $("searchBtn").onclick=openSearch;
   $("installBtn").onclick=triggerInstall;
+  if(syncLoanCategories()) save("loan.categories");   /* give existing loans their EMI category */
   renderTabs();
   route("dashboard");
   maybeInstallHint();
