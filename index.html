@@ -635,7 +635,9 @@ function incomeTds(x){ var r=num(x.tdsRate)/100; if(r>0 && r<1){ var net=num(x.a
 /* tax figures are rounded to whole rupees (100 paise), as before */
 function rupeeRound(p){ return Math.round(p/100)*100; }
 function incomeTdsTotal(fy,owner){ var L=incomeFor(fy,owner),t=0; for(var i=0;i<L.length;i++){ if(State.settings.excludeCashFromTax && L[i].cash) continue; t+=incomeTds(L[i]); } return rupeeRound(t); }
-function mergeCashFlag(e){ var o={}; for(var k in e){ if(e.hasOwnProperty(k)) o[k]=e[k]; } o.cash = e.cash?"1":""; o.owner = e.owner||""; return o; }
+function mergeCashFlag(e){ var o={}; for(var k in e){ if(e.hasOwnProperty(k)) o[k]=e[k]; } o.cash = e.cash?"1":"0"; o.owner = e.owner||""; return o; }
+/* money received into a Cash-type account counts as cash income unless you say otherwise */
+function isCashAccount(id){ var a=id?byId(State.accounts,id):null; return !!(a && a.type==="cash"); }
 
 function investmentValue(inv){
   var qty=num(inv.qty), cur=num(inv.price);
@@ -1105,7 +1107,7 @@ function quickEntry(kind){
       if(!pick.catId){ toast("Pick a category"); return; }
       var d={ id:uid(isInc?"inc":"exp"), amount:p, date:dt.value||todayStr(), catId:pick.catId, accountId:accSel.value, note:nt.value, created:nowISO() };
       var emiMsg="";
-      if(isInc){ d.owner=ownerOfAccount(d.accountId); d.cash=false; d.tdsRate=0; State.income.unshift(d); }
+      if(isInc){ d.owner=ownerOfAccount(d.accountId); d.cash=isCashAccount(d.accountId); d.tdsRate=0; State.income.unshift(d); }
       else {
         applyLoanLink(d);
         if(d.loanId){ var ql=byId(State.loans,d.loanId); if(!d.accountId && ql) d.accountId=ql.linkedAccountId||"";
@@ -1246,7 +1248,7 @@ function txnRow(item){
     icon: isInc?"\u2193":"\u2191",
     iconColor: isInc?"var(--green)":"var(--red)",
     title: catName,
-    sub: fmtDate(r.date)+" \u00B7 "+nameOf(State.accounts,r.accountId,"\u2014")+(r.loanId?(" \u00B7 EMI \u2192 "+nameOf(State.loans,r.loanId,"loan")+" (principal "+money(expensePrincipal(r),true)+", interest "+money(expenseCost(r),true)+")"):"")+(r.note?(" \u00B7 "+r.note):"")+(isInc&&num(r.tdsRate)>0?(" \u00B7 TDS "+num(r.tdsRate)+"%"):""),
+    sub: fmtDate(r.date)+" \u00B7 "+nameOf(State.accounts,r.accountId,"\u2014")+(r.loanId?(" \u00B7 EMI \u2192 "+nameOf(State.loans,r.loanId,"loan")+" (principal "+money(expensePrincipal(r),true)+", interest "+money(expenseCost(r),true)+")"):"")+(r.note?(" \u00B7 "+r.note):"")+(isInc&&num(r.tdsRate)>0?(" \u00B7 TDS "+num(r.tdsRate)+"%"):"")+(isInc&&r.cash?(" \u00B7 cash"+(State.settings.excludeCashFromTax?" (left out of tax)":"")):""),
     amount: (isInc?"+":"-")+money(r.amount,true),
     amountClass: isInc?"pos":"neg",
     onClick: function(){ isInc?addIncome(r):addExpense(r); }
@@ -1312,13 +1314,13 @@ function addIncome(existing){
       {key:"catId",label:"Category",type:"select",options:catOpts(State.incomeCats),placeholder:"Select category",required:true},
       {key:"accountId",label:"Deposit to account",type:"select",options:accOpts(),placeholder:"Select account"},
       {key:"owner",label:"Whose income",type:"select",width:"half",options:[{value:"",label:"Auto (from account)"},{value:"me",label:"You"},{value:"spouse",label:"Spouse"}]},
-      {key:"cash",label:"Cash income?",type:"select",width:"half",options:[{value:"",label:"No"},{value:"1",label:"Yes (cash)"}],hint:"can be excluded from taxable income"},
+      {key:"cash",label:"Cash income?",type:"select",width:"half",options:[{value:"",label:"Auto (cash if into a Cash account)"},{value:"1",label:"Yes (cash)"},{value:"0",label:"No (bank / UPI / card)"}],hint:"cash income can be left out of the tax estimate (Tax tab)"},
       {key:"tdsRate",label:"TDS rate %",type:"number",width:"half",placeholder:"0",hint:"if tax was deducted at source; gross is computed for tax"},
       {key:"note",label:"Note",type:"text",placeholder:"e.g. OPD share, consultation"}
     ],
     values: existing?mergeCashFlag(existing):(prefill||{}),
     onSave:function(d){
-      d.cash = (d.cash==="1"||d.cash===1||d.cash===true);
+      d.cash = (d.cash==="1"||d.cash===1||d.cash===true) || ((d.cash===""||d.cash==null) && isCashAccount(d.accountId));
       d.owner = d.owner || ownerOfAccount(d.accountId);
       if(existing){ for(var k in d) existing[k]=d[k]; existing.updated=nowISO(); save("income.edit",d.amount); }
       else { d.id=uid("inc"); d.created=nowISO(); State.income.unshift(d); save("income.add",d.amount); }
@@ -1819,8 +1821,8 @@ function opdIncomeFor(opdId){ for(var i=0;i<State.income.length;i++){ if(State.i
 function syncOpdIncome(o){
   var rev=num(o.revenue); var inc=opdIncomeFor(o.id);
   if(rev<=0 || !o.accountId){ if(inc) removeFrom(State.income,inc.id); return; }
-  if(inc){ inc.amount=rev; inc.date=o.date; inc.accountId=o.accountId; inc.opdLoc=o.village; inc.note="OPD: "+o.village; inc.owner=ownerOfAccount(o.accountId); inc.updated=nowISO(); }
-  else { State.income.unshift({ id:uid("inc"), amount:rev, date:o.date, accountId:o.accountId, catId:"", note:"OPD: "+(o.village||"camp"), opdLoc:o.village, owner:ownerOfAccount(o.accountId), source:"opd", linkedOpdId:o.id, created:nowISO() }); }
+  if(inc){ inc.amount=rev; inc.date=o.date; inc.accountId=o.accountId; inc.opdLoc=o.village; inc.note="OPD: "+o.village; inc.owner=ownerOfAccount(o.accountId); inc.cash=isCashAccount(o.accountId); inc.updated=nowISO(); }
+  else { State.income.unshift({ id:uid("inc"), amount:rev, date:o.date, accountId:o.accountId, catId:"", note:"OPD: "+(o.village||"camp"), opdLoc:o.village, owner:ownerOfAccount(o.accountId), cash:isCashAccount(o.accountId), source:"opd", linkedOpdId:o.id, created:nowISO() }); }
 }
 function removeOpdIncome(opdId){ var inc=opdIncomeFor(opdId); if(inc) removeFrom(State.income,inc.id); }
 function renderOPD(v){
@@ -2126,10 +2128,12 @@ function renderTax(v){
   var cashAmt=cashIncomeTotal(fy,TAX_OWNER);
   var ct=el("div","card"); ct.style.marginTop="12px";
   var ctRow=el("div"); ctRow.style.cssText="display:flex;justify-content:space-between;align-items:center;gap:10px";
-  ctRow.appendChild(el("div",null,"<div style='font-weight:600'>Exclude cash income from tax</div><div class='s' style='color:var(--muted);font-size:12px'>Cash flagged income this FY: "+money(cashAmt,true)+"</div>"));
+  ctRow.appendChild(el("div",null,"<div style='font-weight:600'>Leave cash income out of this tax estimate</div><div class='s' style='color:var(--muted);font-size:12px'>"+(TAX_OWNER==="spouse"?"Spouse's":"Your")+" cash income this FY: "+money(cashAmt,true)+(State.settings.excludeCashFromTax&&cashAmt?" \u2014 not counted above":"")+"</div>"));
   var tog=el("button","btn sm"+(State.settings.excludeCashFromTax?" primary":""), State.settings.excludeCashFromTax?"On":"Off");
   tog.onclick=function(){ State.settings.excludeCashFromTax=!State.settings.excludeCashFromTax; setTaxGross("me",null); setTaxGross("spouse",null); save("tax.cashtoggle"); render(); };
-  ctRow.appendChild(tog); ct.appendChild(ctRow); v.appendChild(ct);
+  ctRow.appendChild(tog); ct.appendChild(ctRow);
+  ct.appendChild(el("div","sub","Applies to both you and spouse. Income is cash when you tick \u2018Cash income? Yes\u2019 or it was received into a Cash-type account. This only changes the app\u2019s estimate \u2014 cash receipts are still taxable income under Indian tax law and need to be reported in your return."));
+  v.appendChild(ct);
 
   /* TDS gross-up per source (#22, #23) */
   var tt=tdsTotals();
@@ -3504,7 +3508,7 @@ function commitStatement(ctx,res,keep,openingAdj){
   for(j=0;j<keep.length;j++){ var r=keep[j];
     var base={ amount:r.amount, date:r.date, note:r.note, narration:r.narration, fp:r.fp, batchId:batch.id, created:now };
     if(r.ref) base.ref=r.ref;
-    if(r.type==="income"){ base.id=uid("inc"); base.catId=r.catId; base.accountId=r.accountId; base.owner=ownerOfAccount(r.accountId); base.cash=false; base.tdsRate=0; State.income.unshift(base); }
+    if(r.type==="income"){ base.id=uid("inc"); base.catId=r.catId; base.accountId=r.accountId; base.owner=ownerOfAccount(r.accountId); base.cash=isCashAccount(r.accountId); base.tdsRate=0; State.income.unshift(base); }
     else if(r.type==="expense" && !loanOfCat(r.catId)){ base.id=uid("exp"); base.catId=r.catId; base.accountId=r.accountId; State.expenses.unshift(base); }
     else if(r.type==="loan" || r.type==="expense"){ if(r.type==="expense") r.loanId=loanOfCat(r.catId); var ln=byId(State.loans,r.loanId);
       base.id=uid("exp"); base.catId=loanCatFor(r.loanId); base.accountId=r.accountId; base.loanId=r.loanId;
