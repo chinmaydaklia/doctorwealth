@@ -1944,7 +1944,8 @@ function addLoan(existing){
       {key:"emi",label:"Monthly EMI",type:"money",width:"half",def:0},
       {key:"tenure",label:"Tenure (months)",type:"number",width:"half",def:0},
       {key:"start",label:"Start date",type:"date",width:"half",def:todayStr()},
-      {key:"linkedAccountId",label:"Linked bank account",type:"select",options:accOpts(),placeholder:"(none) \u2014 used as default for repayments"}
+      {key:"linkedAccountId",label:"Linked bank account",type:"select",options:accOpts(),placeholder:"(none) \u2014 used as default for repayments"},
+      {key:"acctNo",label:"Loan account number (optional)",type:"text",placeholder:"e.g. 87470600001302",hint:"lets statement imports recognise this loan"}
     ],
     values: existing||{type:"home"},
     onSave:function(d){
@@ -2679,11 +2680,122 @@ function importJSON(){
 }
 
 /* ---- Zerodha import via SheetJS (lazy CDN load) ---- */
+/* =========================================================================
+   ZERODHA DP "TRANSACTION WITH HOLDING STATEMENT" (PDF) -> holdings, with review + undo
+   ========================================================================= */
+var ISIN_RE=/^IN[EF0-9][A-Z0-9]{9}$/;
+function parseDpHoldings(pages){
+  var out=[], asOf="", started=false, p, i, j, texts=[];
+  for(p=0;p<pages.length;p++){
+    for(i=0;i<pages[p].length;i++){ var L=pages[p][i], cells=L.cells, txt=cells.map(function(c){ return c.t; }).join(" ");
+      var m=/holdings as on\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[\/\-][\w]{2,3}[\/\-]\d{2,4})/i.exec(txt);
+      if(m){ started=true; asOf=parseDateAny(m[1]); continue; }
+      if(!started) continue;
+      if(/^total\b/i.test(txt.replace(/^\W+/,""))){ started=false; continue; }
+      if(/isin code|company name/i.test(txt)) continue;
+      if(ISIN_RE.test(cells[0].t)){
+        var nums=[], name=[];
+        for(j=1;j<cells.length;j++){ if(/^-?\d[\d,]*(\.\d+)?$/.test(cells[j].t)) nums.push(parseFloat(cells[j].t.replace(/,/g,""))); else name.push(cells[j].t); }
+        if(nums.length<3) continue;
+        out.push({ isin:cells[0].t, nameParts:name, qty:nums[0], rate:nums[nums.length-2], value:nums[nums.length-1], y:L.y, page:p, h:L.h||6 });
+      } else if(!/^[\d.,\s]+$/.test(txt)) texts.push({ t:txt, y:L.y, page:p, h:L.h||6 });   /* wrapped name pieces (not bare numbers) */
+    }
+  }
+  /* wrapped company names sit above and below their row: give each text line to the nearest row on that page */
+  for(i=0;i<texts.length;i++){ var tl=texts[i], best=null, bd=1e9;
+    for(j=0;j<out.length;j++){ if(out[j].page!==tl.page) continue; var d=Math.abs(out[j].y-tl.y); if(d<bd){ bd=d; best=out[j]; } }
+    if(best && bd<=tl.h*2.6){ if(tl.y>best.y) (best.above||(best.above=[])).push(tl); else (best.below||(best.below=[])).push(tl); }
+  }
+  for(i=0;i<out.length;i++){ var h=out[i], parts=[];
+    (h.above||[]).sort(function(a,b){ return b.y-a.y; }).forEach(function(x){ parts.push(x.t); });
+    parts=parts.concat(h.nameParts);
+    (h.below||[]).sort(function(a,b){ return b.y-a.y; }).forEach(function(x){ parts.push(x.t); });
+    var nm=""; for(j=0;j<parts.length;j++){ var pt=String(parts[j]).replace(/^\s+|\s+$/g,""); if(!pt) continue;
+      nm += (!nm ? "" : (/-$/.test(nm) || /^\//.test(pt) ? "" : " ")) + pt; }   /* "BANK OF BARODA-" + "EQ" -> "BANK OF BARODA-EQ" */
+    h.name=nm.replace(/\s+/g," ");
+    delete h.above; delete h.below; delete h.nameParts;
+  }
+  return { asOf:asOf, rows:out };
+}
+/* "HDFC BANK-EQ1/-" and "HDFCBANK" -> "HDFCBANK" */
+function holdingKey(n){ return String(n||"").toUpperCase().replace(/\(.*?\)/g,"").replace(/-?\s*EQ(TY)?\b.*$/,"").replace(/\b(LTD|LIMITED)\b/g,"").replace(/[^A-Z0-9]/g,""); }
+function matchHolding(h){
+  var i, iv, k=holdingKey(h.name);
+  for(i=0;i<State.investments.length;i++){ iv=State.investments[i]; if(iv.isin && iv.isin===h.isin) return iv.id; }
+  for(i=0;i<State.investments.length;i++){ iv=State.investments[i]; if(iv.archived) continue; var k2=holdingKey(iv.name);
+    if(k2 && k && (k2===k || (k.length>=6 && k2.length>=6 && (k.indexOf(k2)===0 || k2.indexOf(k)===0)))) return iv.id; }
+  return "";
+}
+function askPdfPassword(title,cb){
+  openModal(function(){ var w=el("div"); w.appendChild(el("h3",null,esc(title)));
+    w.appendChild(el("p","sub","Zerodha statements are usually protected with your PAN in capitals. It is used only to open the file and is not saved."));
+    var pw=el("input","input"); pw.type="password"; w.appendChild(pw);
+    var row=el("div","btnrow"); row.style.marginTop="10px"; var c=el("button","btn ghost","Cancel"); c.onclick=function(){ closeModal(); };
+    var ok=el("button","btn primary","Open"); ok.style.flex="1"; ok.onclick=function(){ var v=pw.value; closeModal(); cb(v); };
+    row.appendChild(c); row.appendChild(ok); w.appendChild(row); setTimeout(function(){ pw.focus(); },100); return w; },true);
+}
+function importHoldingsPdf(file,pw){
+  var reader=new FileReader();
+  reader.onload=function(){
+    busy("Reading "+file.name+"\u2026");
+    readPdfStatement(reader.result,pw||"",function(err,pages){
+      closeModal();
+      if(err){ if(err.code==="PASSWORD_NEEDED"||err.code==="PASSWORD_WRONG"){ askPdfPassword(err.code==="PASSWORD_WRONG"?"Wrong password \u2014 try again":"This statement is password-protected",function(v){ importHoldingsPdf(file,v); }); return; }
+        toast(err.message||"Could not read PDF"); return; }
+      var res=parseDpHoldings(pages);
+      if(!res.rows.length){ toast("No \u2018Holdings as on\u2019 table found in this PDF"); return; }
+      holdingsPreview(file.name,res);
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+function holdingsPreview(fileName,res){
+  var rows=res.rows.map(function(h){ return { h:h, include:true, match:matchHolding(h) }; });
+  var total=0; for(var i=0;i<rows.length;i++) total+=Math.round(rows[i].h.value*100);
+  openModal(function(){
+    var w=el("div"); w.appendChild(el("h3",null,"Review holdings"));
+    w.appendChild(el("p","sub",esc(fileName)+" \u00B7 "+rows.length+" holdings as on "+fmtDate(res.asOf)+" \u00B7 value "+money(total)+". Nothing changes until you tap Update."));
+    w.appendChild(el("div","note","Quantity and today\u2019s rate are updated. The DP statement has no buy price, so your average cost is kept; holdings new to the app start with cost = today\u2019s rate (P&amp;L 0) \u2014 edit the average price later if you know it."));
+    var L=el("div","list");
+    rows.forEach(function(r){
+      var c=el("div","prow"); var top=el("div","top"); var cb=el("input"); cb.type="checkbox"; cb.checked=r.include; cb.onchange=function(){ r.include=cb.checked; c.className="prow"+(r.include?"":" off"); };
+      top.appendChild(cb); top.appendChild(el("span","nar",esc(r.h.name)+" <span style='color:var(--muted)'>"+esc(r.h.isin)+"</span>"));
+      top.appendChild(el("span",null,money(Math.round(r.h.value*100),true))); c.appendChild(top);
+      c.appendChild(el("div","sub",r.h.qty+" \u00D7 "+money(Math.round(r.h.rate*100))));
+      var sel=el("select","sm"); var o0=el("option",null,"+ Add as a new holding"); o0.value=""; sel.appendChild(o0);
+      State.investments.filter(function(x){ return !x.archived; }).forEach(function(x){ var o=el("option",null,"Update: "+esc(x.name)+(x.qty?(" ("+x.qty+")"):"")); o.value=x.id; sel.appendChild(o); });
+      sel.value=r.match; sel.onchange=function(){ r.match=sel.value; }; c.appendChild(sel);
+      L.appendChild(c);
+    });
+    w.appendChild(L);
+    var foot=el("div","btnrow"); foot.style.cssText="margin-top:12px;position:sticky;bottom:-20px;background:#0e2444;padding:8px 0";
+    var cancel=el("button","btn ghost","Cancel"); cancel.onclick=closeModal;
+    var ok=el("button","btn primary","Update holdings"); ok.style.flex="1";
+    ok.onclick=function(){
+      var batch={ id:uid("batch"), kind:"holdings", file:fileName, from:res.asOf, to:res.asOf, count:0, changes:[], createdIds:[], created:nowISO() };
+      rows.forEach(function(r){ if(!r.include) return; var h=r.h, price=Math.round(h.rate*100);
+        var iv=r.match?byId(State.investments,r.match):null;
+        if(iv){ batch.changes.push({ id:iv.id, prev:{ qty:iv.qty, price:iv.price, isin:iv.isin||"" } }); iv.qty=h.qty; iv.price=price; iv.isin=h.isin; }
+        else { var nid=uid("inv"); State.investments.push({ id:nid, name:h.name, type:(/^INF/.test(h.isin)?"ETFs":"Stocks"), isin:h.isin, qty:h.qty, avg:price, price:price, invested:0, value:0,
+            broker:"Zerodha", fundFrom:"", sip:false, archived:false, costFromStatement:true, created:nowISO() }); batch.createdIds.push(nid); }
+        batch.count++; });
+      State.importBatches.unshift(batch); save("import.holdings",fileName+" \u00D7"+batch.count);
+      closeModal(); toast(batch.count+" holdings updated \u00B7 undo from Import \u2192 history"); route("investments");
+    };
+    foot.appendChild(cancel); foot.appendChild(ok); w.appendChild(foot);
+    return w;
+  },false,true);
+}
 function importZerodha(){
+  var pick=document.createElement("input"); pick.type="file"; pick.accept=".xlsx,.xls,.pdf,application/pdf";
+  pick.onchange=function(){ var f=pick.files[0]; if(!f) return; if(/\.pdf$/i.test(f.name)) importHoldingsPdf(f,""); else importZerodhaXlsx(f); };
+  pick.click();
+}
+function importZerodhaXlsx(file0){
   loadSheetJS(function(ok){
     if(!ok){ toast("Could not load Excel reader (offline?)"); return; }
-    var inp=document.createElement("input"); inp.type="file"; inp.accept=".xlsx,.xls";
-    inp.onchange=function(){ var file=inp.files[0]; if(!file) return; var reader=new FileReader();
+    var inp={ files:[file0] };
+    (function(){ var file=inp.files[0]; if(!file) return; var reader=new FileReader();
       reader.onload=function(e){
         try{
           var wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
@@ -2694,8 +2806,7 @@ function importZerodha(){
         }catch(err){ toast("Could not parse file"); }
       };
       reader.readAsArrayBuffer(file);
-    };
-    inp.click();
+    })();
   });
 }
 function findStockByName(name){
@@ -2910,16 +3021,60 @@ function groupPdfItems(items){
       } else { cell={ t:t.s, x0:t.x, x1:t.x+t.w, gapSpace:false }; cells.push(cell); }
     }
     for(var k=0;k<cells.length;k++) cells[k].t=cells[k].t.replace(/\s+/g," ").replace(/^\s|\s$/g,"");
-    if(cells.length) out.push({ y:L.y, cells:cells });
+    if(cells.length) out.push({ y:L.y, h:L.h, cells:cells });
   }
   return out;
 }
-var PDF_JUNK=/page\s*\d+\s*(of|\/)\s*\d+|statement of account|computer generated|does not require|generated on|^page\s*\d+$|customer care|registered office|www\.|toll free|^\*+|end of statement|abbreviations/i;
+var PDF_JUNK=/page\s*\d+\s*(of|\/)\s*\d+|statement of account|computer generated|computer-generated|discrepancy|^note\s*:|in case you find|contents of this statement|cyber crime|helpline|^\*?all dates are|does not require|generated on|^page\s*\d+$|customer care|registered office|www\.|toll free|^\*+|end of statement|abbreviations/i;
+/* A PDF may hold several accounts (Bank of Baroda e-statement: savings + each loan).
+   Split at "Statement of transactions in <type> Account <no>" and parse each part on its own. */
+var SECTION_RE=/statement of transactions in\s+(?:the\s+)?([a-z ]*?)\s*a\/?c(?:count)?\s*(?:no\.?\s*)?[:\-]?\s*([0-9xX*]{6,})/i;
 function parsePdfStatement(pages){
-  var lines=[], p, i, j;
+  var lines=[], p, i;
   for(p=0;p<pages.length;p++){ for(i=0;i<pages[p].length;i++){ var ln=pages[p][i]; ln.page=p; lines.push(ln); } }
-  var head=null, allText="";
+  var allText="";
   for(i=0;i<lines.length && i<400;i++) allText+=" "+lines[i].cells.map(function(c){ return c.t; }).join(" ");
+  var bank=detectBank(allText);
+  var secs=[{ kind:"main", acct:"", lines:[] }];
+  for(i=0;i<lines.length;i++){
+    var m=SECTION_RE.exec(lines[i].cells.map(function(c){ return c.t; }).join(" "));
+    if(m){ secs.push({ kind:(/loan/i.test(m[1])?"loan":"deposit"), acct:m[2], lines:[] }); continue; }
+    secs[secs.length-1].lines.push(lines[i]);
+  }
+  if(secs.length===1) return parsePdfLines(lines, allText, bank);
+  var main=null, loans=[], firstErr=null;
+  for(i=0;i<secs.length;i++){ var sct=secs[i]; if(!sct.lines.length) continue;
+    var r=parsePdfLines(sct.lines, allText, bank);
+    if(sct.kind==="loan"){ if(!r.error){ r.acct=sct.acct; r.detail=loanDetailFrom(sct.lines); loans.push(r); } continue; }
+    if(r.error){ if(!firstErr) firstErr=r; continue; }
+    if(!main){ main=r; main.acct=sct.acct; }
+  }
+  if(!main) return firstErr||{ error:"No savings/current account transactions found in this PDF." };
+  main.loans=loans;
+  return main;
+}
+/* "SANCTIONED DATE | SANCTIONED AMOUNT | EMI | TENURE | ROI (%) | ..." header with the values on the next line */
+function loanDetailFrom(lines){
+  for(var i=0;i+1<lines.length;i++){
+    var h=lines[i].cells, txt=h.map(function(c){ return c.t; }).join(" ");
+    if(!/\bemi\b/i.test(txt) || !/roi|rate/i.test(txt)) continue;
+    var vals=lines[i+1].cells, out={}, k;
+    if(i+2<lines.length && !/\d/.test(lines[i+1].cells.map(function(c){ return c.t; }).join(""))) vals=lines[i+2].cells;
+    for(k=0;k<h.length;k++){ var name=h[k].t.toLowerCase(), cx=(h[k].x0+h[k].x1)/2, best=null, bd=1e9;
+      for(var v=0;v<vals.length;v++){ var d=Math.abs((vals[v].x0+vals[v].x1)/2-cx); if(d<bd){ bd=d; best=vals[v].t; } }
+      if(best===null) continue;
+      if(/^emi$/.test(name)) out.emi=paise(best);
+      else if(/roi|rate/.test(name)) out.rate=parseFloat(best);
+      else if(/sanctioned amount|loan amount/.test(name)) out.sanctioned=paise(best);
+      else if(/tenure/.test(name)) out.tenure=parseInt(best,10);
+      else if(/next emi|next due/.test(name)) out.nextDue=parseDateAny(best);
+    }
+    return out;
+  }
+  return {};
+}
+function parsePdfLines(lines, allText, bank){
+  var head=null, i, j;
   /* header: a line (or two adjacent lines) holding date + debit/credit (+ balance) column titles */
   function headerFrom(cells){
     var col={}; for(var k=0;k<cells.length;k++){ var kind=headerKind(cells[k].t); if(kind && !col[kind]) col[kind]={ x0:cells[k].x0, x1:cells[k].x1, c:(cells[k].x0+cells[k].x1)/2 }; }
@@ -2935,18 +3090,30 @@ function parsePdfStatement(pages){
     if(lines[i+1].page!==lines[i].page) continue;
     var ca=headerFrom(lines[i].cells), cb=headerFrom(lines[i+1].cells), na=0, nb=0, kk;
     for(kk in ca) if(ca.hasOwnProperty(kk)) na++; for(kk in cb) if(cb.hasOwnProperty(kk)) nb++;
-    if(na<2 || nb<2) continue;
+    if(na<2 || nb<1) continue;
     var c2=headerFrom(lines[i].cells.concat(lines[i+1].cells));
     if(c2.date && c2.debit && c2.credit) head=c2;
   }
-  var txns=[], meta={opening:null, closing:null}, cur=null, contCount=0, pendingClosingLabel=false;
+  var txns=[], meta={opening:null, closing:null}, cur=null, contCount=0, pendingClosingLabel=false, orphans=[], inTable=!head;
+  /* Description lines without date/amount belong to whichever transaction row they sit nearest:
+     HDFC wraps text BELOW its row, SBI prints it ABOVE the (vertically centred) date. */
+  function placeOrphans(t){
+    var prev=txns.length?txns[txns.length-1]:null, before=[];
+    for(var q=0;q<orphans.length;q++){ var o=orphans[q];
+      var up=(prev && prev.page===o.page)?Math.abs(prev.y-o.y):1e9, down=(t.page===o.page)?Math.abs(o.y-t.y):1e9;
+      if(Math.min(up,down)>o.h*2.6) continue;            /* too far from any row: page text, not a description */
+      if(down<up) before.push(o.text); else if(prev) prev.narration+=" "+o.text; }
+    if(before.length) t.narration=before.join(" ")+(t.narration?" "+t.narration:"");
+    orphans=[];
+  }
+  function flushOrphans(){ var prev=txns.length?txns[txns.length-1]:null; for(var q=0;q<orphans.length;q++){ var o=orphans[q]; if(prev && prev.page===o.page && Math.abs(prev.y-o.y)<=o.h*2.6) prev.narration+=" "+o.text; } orphans=[]; }
   for(i=0;i<lines.length;i++){
     var L=lines[i], cells=L.cells, text=cells.map(function(c){ return c.t; }).join(" "), lt=text.toLowerCase();
-    if(isHeaderLine(L) || (head && /\b(narration|particulars|description)\b/i.test(text) && /balance/i.test(text))){ cur=null; continue; }
+    if(isHeaderLine(L) || (head && /\b(narration|particulars|description)\b/i.test(text) && /balance/i.test(text))){ flushOrphans(); cur=null; inTable=true; continue; }
     /* amounts on this line (merge a trailing "Cr"/"Dr" cell into the amount before it) */
     var amts=[];
     for(j=0;j<cells.length;j++){
-      var ct=cells[j].t;
+      var ct=cells[j].t.replace(/^(\u20B9|rs\.?|inr)\s*/i,"");
       if(j+1<cells.length && /^(cr|dr)\.?$/i.test(cells[j+1].t) && AMT_RE.test(ct)){ ct=ct+" "+cells[j+1].t; cells[j+1].used=true; }
       if(AMT_RE.test(ct)){ var aw=amtWithSide(ct); amts.push({ p:Math.abs(aw.p), neg:aw.p<0, side:aw.side, x0:cells[j].x0, x1:cells[j].x1, idx:j }); cells[j].amt=true; }
     }
@@ -2960,44 +3127,57 @@ function parsePdfStatement(pages){
       if(amts.length>=2){ meta.closing=signed(amts[amts.length-1]); if(pendingClosingLabel==="both") meta.opening=signed(amts[0]); }
       pendingClosingLabel=false; if(amts.length && !leadingDate(cells)) continue;
     }
-    if(/opening\s*bal|balance\s*b\/?f|brought forward|balance as on|balance as of/.test(lt) && !leadingDate(cells).date){
+    if(/opening\s*bal|balance\s*b\/?f|brought forward|balance as on|balance as of/.test(lt) && (!leadingDate(cells).date || /opening\s*bal|brought forward|b\/f/.test(lt))){
       if(amts.length && meta.opening===null) meta.opening=signed(amts[amts.length-1]);
       cur=null; continue;
     }
     var ld=leadingDate(cells);
+    if(!inTable) continue;            /* account summaries / loan-detail rows above the table are not transactions */
     if(ld.date && amts.length){
-      var t={ date:ld.date, narration:"", debit:0, credit:0, balance:null, hint:"" , page:L.page };
+      var t={ date:ld.date, narration:"", debit:0, credit:0, balance:null, hint:"" , page:L.page, y:L.y };
       var narr=[]; if(ld.rest) narr.push(ld.rest);
-      for(j=ld.used;j<cells.length;j++){ if(cells[j].amt||cells[j].used) continue; if(parseDateAny(cells[j].t) && cells[j].t.length<=12) continue; narr.push(cells[j].t); }
+      for(j=ld.used;j<cells.length;j++){ if(cells[j].amt||cells[j].used||isFiller(cells[j].t)) continue; if(parseDateAny(cells[j].t) && cells[j].t.length<=12) continue; narr.push(stripLeadDate(cells[j].t)); }
       t.narration=narr.join(" ");
       assignAmounts(t, amts, head);
-      if(t.debit||t.credit){ txns.push(t); cur=t; contCount=0; } else cur=null;
+      if(t.debit||t.credit||t.amt){ placeOrphans(t); txns.push(t); cur=t; contCount=0; } else cur=null;
       continue;
+    }
+    if(ld.date && !amts.length && ld.used===cells.length && !ld.rest && cur && !cur.pending && cur.page===L.page && Math.abs(cur.y-L.y)<=(L.h||8)*2.6){
+      cur.narration+=" "+text; contCount++; continue;   /* wrapped description that is just a date ("...to" / "31-07-2026") */
     }
     if(ld.date && !amts.length){
       /* date row whose amounts wrap to the next line: keep as pending */
-      cur={ date:ld.date, narration:((ld.rest?ld.rest+" ":"")+cells.slice(ld.used).map(function(c){ return c.t; }).join(" ")), debit:0, credit:0, balance:null, pending:true };
+      cur={ date:ld.date, narration:((ld.rest?ld.rest+" ":"")+cells.slice(ld.used).filter(function(c){ return !isFiller(c.t); }).map(function(c){ return c.t; }).join(" ")), debit:0, credit:0, balance:null, pending:true, page:L.page, y:L.y };
       contCount=0; continue;
     }
     if(!ld.date && amts.length && cur && cur.pending){
-      var nar2=[]; for(j=0;j<cells.length;j++){ if(!cells[j].amt && !cells[j].used) nar2.push(cells[j].t); }
+      var nar2=[]; for(j=0;j<cells.length;j++){ if(!cells[j].amt && !cells[j].used && !isFiller(cells[j].t)) nar2.push(cells[j].t); }
       if(nar2.length) cur.narration+=" "+nar2.join(" ");
       assignAmounts(cur, amts, head); delete cur.pending;
-      if(cur.debit||cur.credit){ txns.push(cur); contCount=0; } else cur=null;
+      if(cur.debit||cur.credit||cur.amt){ placeOrphans(cur); txns.push(cur); contCount=0; } else cur=null;
       continue;
     }
-    if(!ld.date && !amts.length && cur && !PDF_JUNK.test(text) && contCount<4){
-      if(cur.pending){ cur.narration+=" "+text; } else { cur.narration+=" "+text; }
+    if(!ld.date && !amts.length && (cur || meta.opening!==null) && !PDF_JUNK.test(text) && contCount<4){
+      if(cur && cur.pending){ cur.narration+=" "+text; }
+      else orphans.push({ text:cells.filter(function(c){ return !isFiller(c.t); }).map(function(c){ return c.t; }).join(" "), y:L.y, page:L.page, h:L.h||8 });
       contCount++; continue;
     }
-    if(PDF_JUNK.test(text)) cur=null;
+    if(PDF_JUNK.test(text)){ flushOrphans(); cur=null; }
   }
+  flushOrphans();
   for(i=0;i<txns.length;i++) txns[i].narration=txns[i].narration.replace(/\s+/g," ").replace(/^\s|\s$/g,"");
   if(!txns.length) return { error:"No transactions recognised in this PDF. If it is a scanned image (not text), download the CSV/Excel version from net banking instead." };
-  return finalizeTxns(txns, meta, detectBank(allText));
+  return finalizeTxns(txns, meta, bank);
 }
+/* "30-08-2026 UPI/2258..." (value date glued to the description) -> "UPI/2258..." */
+function stripLeadDate(t){ var m=/^(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{1,2}[\s\-][A-Za-z]{3}[\s\-]\d{2,4})\s+(\S[\s\S]*)$/.exec(t); return (m && parseDateAny(m[1]))?m[2]:t; }
+function isFiller(t){ return /^(-+|0|0\.00|nil|na)$/i.test(String(t).replace(/\s/g,"")); }
 function signed(a){ return (a.side==="dr"||a.neg)?-a.p:a.p; }
 function leadingDate(cells){
+  /* skip a leading serial-number cell (Bank of Baroda: "Serial No | Transaction Date | ...") */
+  if(cells.length>1 && /^\d{1,4}\.?$/.test(cells[0].t) && parseDateAny(cells[1].t)){
+    var r0=leadingDate(cells.slice(1)); if(r0.date){ r0.used+=1; return r0; }
+  }
   /* date may be one cell or split across 2-3 cells ("01 Apr" "2024") */
   for(var n=1;n<=3 && n<=cells.length;n++){
     var s=cells.slice(0,n).map(function(c){ return c.t; }).join(" ");
@@ -3120,9 +3300,44 @@ function hash32(str,seed){ var h=seed>>>0; for(var i=0;i<str.length;i++){ h=(h^s
 function hashStr(str){ return hash32(str,2166136261)+hash32(str,0x9747b28c); }
 /* signedPaise: money out of the account is negative */
 function fingerprint(accId,date,signedPaise,narr){ return "fp1_"+hashStr([accId||"",date||"",String(Math.round(signedPaise)),normNarr(narr)].join("|")); }
+/* reference numbers (UPI / UTR / IMPS, 10+ digits) found in a description */
+function refNumbers(t){ var m=String(t||"").match(/\d{10,}/g)||[], o={}; for(var i=0;i<m.length;i++) o[m[i]]=1; return o; }
+function daysApart(a,b){ return Math.abs((Date.UTC(+a.slice(0,4),+a.slice(5,7)-1,+a.slice(8,10))-Date.UTC(+b.slice(0,4),+b.slice(5,7)-1,+b.slice(8,10)))/864e5); }
+/* the same money already recorded on ANOTHER of your accounts, opposite direction, same UPI/UTR reference -> own transfer */
+function findOwnTransfer(accId,date,amt,dir,narr){
+  var refs=refNumbers(narr), any=false, k; for(k in refs){ if(refs.hasOwnProperty(k)){ any=true; break; } }
+  if(!any) return null;
+  var arr=(dir==="debit")?State.income:State.expenses, kind=(dir==="debit")?"income":"expense";
+  for(var i=0;i<arr.length;i++){ var x=arr[i];
+    if(!x.accountId || x.accountId===accId || num(x.amount)!==amt || x.loanId || !x.date || daysApart(x.date,date)>3) continue;
+    var r2=refNumbers((x.narration||"")+" "+(x.note||""));
+    for(k in refs){ if(refs.hasOwnProperty(k) && r2[k]) return { kind:kind, rec:x }; }
+  }
+  return null;
+}
+/* loan outstanding counting only records dated on or before the given date */
+function loanOutstandingAsOf(l,date){
+  var base=num(l.outstanding), i, p;
+  for(i=0;i<State.loanLedger.length;i++){ p=State.loanLedger[i]; if(p.loanId!==l.id || p.date>date) continue; if(p.kind==="draw") base+=num(p.amount); else base-=(num(p.amount)-num(p.interest||0)); }
+  for(i=0;i<State.expenses.length;i++){ p=State.expenses[i]; if(p.loanId===l.id && p.date<=date) base-=expensePrincipal(p); }
+  return base;
+}
+/* which app loan a bank loan section belongs to: account number in the loan's name/notes, else same EMI */
+function matchLoanSection(sec){
+  var acct=String(sec.acct||""), last4=acct.slice(-4), i, l;
+  for(i=0;i<State.loans.length;i++){ l=State.loans[i]; var t=(l.name||"")+" "+(l.notes||"")+" "+(l.acctNo||""); if(acct && (t.indexOf(acct)>=0 || (last4 && t.indexOf(last4)>=0))) return l.id; }
+  if(sec.detail && sec.detail.emi){ for(i=0;i<State.loans.length;i++){ l=State.loans[i]; if(!l.closed && num(l.emi)===sec.detail.emi) return l.id; } }
+  return "";
+}
+/* bank-charged interest near an EMI date (from the loan section) */
+function sectionInterestNear(sec,date){
+  var t=0, hit=false; for(var i=0;i<sec.txns.length;i++){ var x=sec.txns[i]; if(x.debit && /int/i.test(x.narration) && daysApart(x.date,date)<=5){ t+=x.debit; hit=true; } }
+  return hit?t:null;
+}
 function recFingerprints(kind,r){
   if(kind==="income") return [{ acc:r.accountId, fp:(r.fp||fingerprint(r.accountId,r.date,num(r.amount),r.narration||r.note)) }];
   if(kind==="expense") return [{ acc:r.accountId, fp:(r.fp||fingerprint(r.accountId,r.date,-num(r.amount),r.narration||r.note)) }];
+  if(r.fps) return r.fps;
   if(r.fp) return [{ acc:r.fpAcc, fp:r.fp }];
   return [{ acc:r.fromId, fp:fingerprint(r.fromId,r.date,-num(r.amount),r.note) }, { acc:r.toId, fp:fingerprint(r.toId,r.date,num(r.amount),r.note) }];
 }
@@ -3333,6 +3548,11 @@ function accountBalanceAsOf(accId,date){
   return bal;
 }
 function statementPreview(ctx,res){
+  /* loan accounts printed in the same PDF (Bank of Baroda e-statement) */
+  var loanPlan=[];
+  for(var lsx=0;lsx<(res.loans||[]).length;lsx++){ var sc=res.loans[lsx]; var mid=matchLoanSection(sc);
+    loanPlan.push({ sec:sc, loanId:mid, action:(mid?"link":"create"), syncOutstanding:true }); }
+  res.loanPlan=loanPlan;
   var acc=byId(State.accounts,ctx.accId);
   var idx=buildFpIndex(), used={}, seenInBatch={};
   var rows=[];
@@ -3344,10 +3564,14 @@ function statementPreview(ctx,res){
     var hit=ruleMatch(t.narration,dir); if(hit){ r.catId=hit.catId; r.rule=hit.pattern; if(dir==="debit" && loanOfCat(hit.catId)){ r.type="loan"; r.loanId=loanOfCat(hit.catId); } }
     /* a debit equal to an open loan's EMI is suggested as that loan's EMI (you can change it) */
     if(dir==="debit"){ for(var li=0;li<State.loans.length;li++){ var lo=State.loans[li]; if(!lo.closed && num(lo.emi)>0 && num(lo.emi)===amt){ r.type="loan"; r.loanId=lo.id; r.loanAuto=true; break; } } }
+    /* rows that mention a loan account found in this statement -> that loan's EMI */
+    for(var ls=0;ls<loanPlan.length;ls++){ var sec=loanPlan[ls].sec;
+      if(dir==="debit" && sec.acct && t.narration.replace(/\s/g,"").indexOf(sec.acct)>=0){ r.type="loan"; r.loanSec=ls; r.loanId=loanPlan[ls].loanId; r.loanAuto=true; } }
     /* duplicate: against existing data (each existing entry absorbs one row) or an earlier row of this file */
     var cand=idx[fp]||[]; var k=used[fp]||0;
     if(k<cand.length){ r.dup={ existing:cand[k] }; used[fp]=k+1; r.include=false; }
     else if(seenInBatch[fp]){ r.dup={ row:seenInBatch[fp] }; r.include=false; }
+    else { var pr=findOwnTransfer(ctx.accId,t.date,amt,dir,t.narration); if(pr){ r.type="transfer"; r.other=pr.rec.accountId; r.pair=pr; } }
     if(!seenInBatch[fp]) seenInBatch[fp]=r.n;
     rows.push(r);
   }
@@ -3358,6 +3582,27 @@ function statementPreview(ctx,res){
     w.appendChild(el("h3",null,"Review statement — "+esc(acc?acc.name:"")));
     w.appendChild(el("p","sub",esc(ctx.file.name)+" · "+esc(BANK_NAMES[res.bank]||res.bank)+" · "+res.txns.length+" rows · "+fmtDate(res.from)+" → "+fmtDate(res.to)+". Nothing is saved until you tap Confirm."));
     var sumbar=el("div","sumbar"); w.appendChild(sumbar);
+    if(loanPlan.length){
+      var lp=el("div","card"); lp.style.marginBottom="10px";
+      lp.appendChild(el("div","k","\u2696 Loan accounts in this statement"));
+      for(var q=0;q<loanPlan.length;q++){ (function(pl){
+        var sc=pl.sec, box=el("div"); box.style.cssText="border-top:1px solid var(--line);margin-top:8px;padding-top:8px";
+        box.appendChild(el("div",null,"<b>A/c \u2026"+esc(String(sc.acct).slice(-6))+"</b> \u00B7 bank outstanding <b>"+money(Math.abs(sc.closing||0))+"</b> on "+fmtDate(sc.to)+
+          "<div class='sub'>Interest charged "+money(sc.totalDebit)+" \u00B7 paid in "+money(sc.totalCredit)+(sc.detail&&sc.detail.emi?(" \u00B7 EMI "+money(sc.detail.emi)):"")+(sc.detail&&sc.detail.rate?(" \u00B7 "+sc.detail.rate+"%"):"")+"</div>"));
+        var sel=el("select","sm"); var opts=[["create","+ Create this loan in the app"],["ignore","Ignore this loan"]];
+        for(var z=0;z<State.loans.length;z++) opts.splice(z,0,["L:"+State.loans[z].id,"This is: "+State.loans[z].name]);
+        for(z=0;z<opts.length;z++){ var o=el("option",null,esc(opts[z][1])); o.value=opts[z][0]; sel.appendChild(o); }
+        sel.value=pl.action==="link"?("L:"+pl.loanId):pl.action;
+        sel.onchange=function(){ var v=sel.value; if(v.indexOf("L:")===0){ pl.action="link"; pl.loanId=v.slice(2); } else { pl.action=v; pl.loanId=""; }
+          for(var rr=0;rr<rows.length;rr++){ if(rows[rr].loanSec===loanPlan.indexOf(pl)) rows[rr].loanId=pl.loanId; } drawList(); };
+        box.appendChild(sel);
+        var cbl=el("label"); cbl.style.cssText="display:flex;gap:8px;font-size:13px;margin-top:6px;align-items:flex-start";
+        var cb=el("input"); cb.type="checkbox"; cb.checked=pl.syncOutstanding; cb.onchange=function(){ pl.syncOutstanding=cb.checked; };
+        cbl.appendChild(cb); cbl.appendChild(el("span",null,"Set the loan\u2019s outstanding to the bank\u2019s figure, and use the bank\u2019s actual interest for EMIs in this period"));
+        box.appendChild(cbl); lp.appendChild(box);
+      })(loanPlan[q]); }
+      w.appendChild(lp);
+    }
     if(res.guesses) w.appendChild(el("div","note warn",res.guesses+" row(s) had no running balance to confirm debit vs credit — check the type on rows marked ⚠."));
     /* bulk tools */
     var bulk=el("div","btnrow"); bulk.style.marginBottom="8px";
@@ -3443,6 +3688,8 @@ function statementPreview(ctx,res){
         c.appendChild(el("div","sub","<span class='bad'>⧉</span> "+dtx+" — unchecked; tick to import anyway."));
       }
       if(r.rule) c.appendChild(el("div","sub","★ rule “"+esc(r.rule)+"”"));
+      if(r.pair && r.type==="transfer" && r.other===r.pair.rec.accountId) c.appendChild(el("div","sub","\u21C4 Same UPI/UTR reference as the "+r.pair.kind+" of "+money(r.pair.rec.amount)+" on "+fmtDate(r.pair.rec.date)+" in "+esc(nameOf(State.accounts,r.pair.rec.accountId))+" \u2014 saved as ONE transfer between your accounts (that "+r.pair.kind+" is replaced, so it isn\u2019t counted twice)."));
+      if(r.type==="loan" && r.loanSec!==undefined && !r.loanId) c.appendChild(el("div","sub","\u2696 EMI for loan A/c \u2026"+esc(String(loanPlan[r.loanSec].sec.acct).slice(-6))+(loanPlan[r.loanSec].action==="create"?" (created on Confirm)":"")));
       if(r.type==="loan") c.appendChild(el("div","sub","\u2696 "+(r.loanAuto?"Amount matches this loan's EMI \u2014 ":"")+"saved once as an EMI expense: pays down the loan (principal) and counts only the interest as an expense. Interest is estimated from the loan rate; edit it later if needed."));
       return c;
     }
@@ -3458,7 +3705,7 @@ function statementPreview(ctx,res){
       for(var j=0;j<rows.length;j++){ var r=rows[j]; if(r.dup) dupN++; if(!r.include) continue; n++;
         if(r.dir==="debit") dr+=r.amount; else cr+=r.amount;
         if(r.type==="transfer" && !r.other) needOther++;
-        if(r.type==="loan" && !r.loanId) needOther++;
+        if(r.type==="loan" && !r.loanId && !(r.loanSec!==undefined && loanPlan[r.loanSec].action==="create")) needOther++;
         /* effect on THIS statement account (rows re-pointed to another account don't count) */
         var target=(r.type==="transfer")?ctx.accId:r.accountId;
         if(target===ctx.accId && r.date<=res.to) delta += (r.dir==="debit"?-r.amount:r.amount);
@@ -3493,7 +3740,7 @@ function statementPreview(ctx,res){
       var keep=rows.filter(function(r){ return r.include; });
       if(!keep.length){ toast("Nothing selected to import"); return; }
       for(var j=0;j<keep.length;j++){ if(keep[j].type==="transfer" && !keep[j].other){ toast("Row #"+keep[j].n+": pick the other account for the transfer"); return; }
-        if(keep[j].type==="loan" && !keep[j].loanId){ toast("Row #"+keep[j].n+": pick which loan this EMI is for"); return; }
+        if(keep[j].type==="loan" && !keep[j].loanId && !(keep[j].loanSec!==undefined && loanPlan[keep[j].loanSec].action==="create")){ toast("Row #"+keep[j].n+": pick which loan this EMI is for"); return; }
         if(!keep[j].amount){ toast("Row #"+keep[j].n+": amount is zero"); return; } if(!keep[j].date){ toast("Row #"+keep[j].n+": date missing"); return; } }
       commitStatement(ctx,res,keep,adjustOpening.on?adjustOpening.amount:0);
     };
@@ -3504,7 +3751,19 @@ function statementPreview(ctx,res){
 function commitStatement(ctx,res,keep,openingAdj){
   var batch={ id:uid("batch"), kind:"statement", accountId:ctx.accId, file:ctx.file.name, bank:res.bank, from:res.from, to:res.to,
     count:keep.length, closing:res.closing, opening:res.opening, openingAdj:openingAdj||0, created:nowISO() };
-  var now=nowISO(), j;
+  var now=nowISO(), j, lp=res.loanPlan||[];
+  /* loans: create the ones asked for, before the EMI rows that point at them */
+  batch.loanAdj=[];
+  for(j=0;j<lp.length;j++){ var pl=lp[j], sc=pl.sec;
+    if(pl.action==="create"){
+      var nl={ id:uid("loan"), name:BANK_NAMES[res.bank]&&res.bank!=="generic"?(BANK_NAMES[res.bank]+" loan \u2026"+String(sc.acct).slice(-4)):("Loan \u2026"+String(sc.acct).slice(-4)), type:"custom", acctNo:sc.acct,
+        principal:(sc.detail&&sc.detail.sanctioned)||Math.abs(sc.closing||0), outstanding:Math.abs(sc.closing||0), rate:(sc.detail&&sc.detail.rate)||0, emi:(sc.detail&&sc.detail.emi)||0,
+        tenure:(sc.detail&&sc.detail.tenure)||0, start:sc.from||"", linkedAccountId:ctx.accId, closed:false, created:now, batchId:batch.id };
+      State.loans.push(nl); pl.loanId=nl.id; batch.loanAdj.push({ loanId:nl.id, created:true, delta:0 });
+    }
+    for(var q=0;q<keep.length;q++){ if(keep[q].loanSec===j && !keep[q].loanId) keep[q].loanId=pl.loanId; }
+  }
+  syncLoanCategories();
   for(j=0;j<keep.length;j++){ var r=keep[j];
     var base={ amount:r.amount, date:r.date, note:r.note, narration:r.narration, fp:r.fp, batchId:batch.id, created:now };
     if(r.ref) base.ref=r.ref;
@@ -3512,11 +3771,27 @@ function commitStatement(ctx,res,keep,openingAdj){
     else if(r.type==="expense" && !loanOfCat(r.catId)){ base.id=uid("exp"); base.catId=r.catId; base.accountId=r.accountId; State.expenses.unshift(base); }
     else if(r.type==="loan" || r.type==="expense"){ if(r.type==="expense") r.loanId=loanOfCat(r.catId); var ln=byId(State.loans,r.loanId);
       base.id=uid("exp"); base.catId=loanCatFor(r.loanId); base.accountId=r.accountId; base.loanId=r.loanId;
-      base.interest=ln?Math.min(r.amount,loanInterestEstimate(ln)):0;   /* rows are in date order, so each estimate uses the balance after the previous EMI */
+      var bankInt=null; for(var s2=0;s2<lp.length;s2++){ if(lp[s2].loanId===r.loanId && lp[s2].syncOutstanding && lp[s2].action!=="ignore"){ bankInt=sectionInterestNear(lp[s2].sec,r.date); if(bankInt!==null) break; } }
+      base.interest=(bankInt!==null)?Math.min(r.amount,bankInt):(ln?Math.min(r.amount,loanInterestEstimate(ln)):0);   /* bank's actual interest when the statement has it, else an estimate */
       State.expenses.unshift(base); if(ln && loanOutstandingValue(ln)<=0) ln.closed=true; }
     else { base.id=uid("tr"); base.fpAcc=ctx.accId;
       if(r.dir==="debit"){ base.fromId=ctx.accId; base.toId=r.other; } else { base.fromId=r.other; base.toId=ctx.accId; }
+      if(r.pair && r.other===r.pair.rec.accountId && (r.pair.kind==="income"?byId(State.income,r.pair.rec.id):byId(State.expenses,r.pair.rec.id))){
+        /* own-account transfer: replace the other side's income/expense with this single transfer (kept for undo) */
+        base.fps=[{ acc:ctx.accId, fp:r.fp }].concat(recFingerprints(r.pair.kind,r.pair.rec));
+        base.replaced={ kind:r.pair.kind, rec:clone(r.pair.rec) };
+        removeFrom(r.pair.kind==="income"?State.income:State.expenses, r.pair.rec.id);
+      }
       State.transfers.unshift(base); }
+  }
+  /* loans: bring the app's outstanding to the bank's closing figure for the statement date */
+  for(j=0;j<lp.length;j++){ var pz=lp[j], lnz=byId(State.loans,pz.loanId);
+    if(!lnz || pz.action==="ignore" || !pz.syncOutstanding || pz.sec.closing===null) continue;
+    var delta=Math.abs(pz.sec.closing)-loanOutstandingAsOf(lnz,pz.sec.to);
+    if(delta){ lnz.outstanding=num(lnz.outstanding)+delta; }
+    var ex=null; for(var e3=0;e3<batch.loanAdj.length;e3++) if(batch.loanAdj[e3].loanId===lnz.id) ex=batch.loanAdj[e3];
+    if(ex) ex.delta+=delta; else batch.loanAdj.push({ loanId:lnz.id, created:false, delta:delta });
+    lnz.closed=(loanOutstandingValue(lnz)<=0);
   }
   if(openingAdj){ var a=byId(State.accounts,ctx.accId); if(a) a.opening=num(a.opening)+openingAdj; }
   State.importBatches.unshift(batch);
@@ -3545,10 +3820,24 @@ function batchEntries(batchId){
 }
 function undoBatch(batchId){
   var b=byId(State.importBatches,batchId); if(!b){ toast("Import not found"); return; }
+  if(b.kind==="holdings"){
+    confirmDo("Undo holdings import \u201C"+b.file+"\u201D? Quantities and prices go back to before, and the "+(b.createdIds||[]).length+" holding(s) it added are removed.",function(){
+      (b.changes||[]).forEach(function(ch){ var iv=byId(State.investments,ch.id); if(iv){ iv.qty=ch.prev.qty; iv.price=ch.prev.price; if(ch.prev.isin) iv.isin=ch.prev.isin; else delete iv.isin; } });
+      (b.createdIds||[]).forEach(function(id){ removeFrom(State.investments,id); });
+      removeFrom(State.importBatches,batchId); save("import.undo",b.file); toast("Holdings import undone"); render(); });
+    return;
+  }
   var n=batchEntries(batchId);
   confirmDo("Undo import “"+b.file+"”? This removes its "+n+" transaction(s)"+(b.openingAdj?" and reverts the opening-balance adjustment":"")+". Entries you edited since are removed too.",function(){
     function strip(arr){ for(var i=arr.length-1;i>=0;i--){ if(arr[i].batchId===batchId) arr.splice(i,1); } }
+    for(var t0=0;t0<State.transfers.length;t0++){ var tr0=State.transfers[t0];   /* put back the entries that own-account transfers replaced */
+      if(tr0.batchId===batchId && tr0.replaced){ var arr0=tr0.replaced.kind==="income"?State.income:State.expenses; if(!byId(arr0,tr0.replaced.rec.id)) arr0.unshift(tr0.replaced.rec); } }
     strip(State.income); strip(State.expenses); strip(State.transfers);
+    var la=b.loanAdj||[];
+    for(var q=0;q<la.length;q++){ var lq=byId(State.loans,la[q].loanId); if(!lq) continue;
+      if(la[q].created && !loanExpensesFor(lq.id).length && !loanLedgerFor(lq.id).length){ removeFrom(State.loans,lq.id); continue; }
+      lq.outstanding=num(lq.outstanding)-num(la[q].delta); lq.closed=(loanOutstandingValue(lq)<=0); }
+    syncLoanCategories();
     if(b.openingAdj){ var a=byId(State.accounts,b.accountId); if(a) a.opening=num(a.opening)-num(b.openingAdj); }
     removeFrom(State.importBatches,batchId);
     save("import.undo",b.file+" ×"+n); toast("Import undone · "+n+" removed"); render();
@@ -4200,7 +4489,7 @@ function renderImport(v){
   var g=el("div","grid g2");
   g.appendChild(exportBtn("Bank statement","PDF (password OK) · CSV · XLS/XLSX",function(){ importStatement(); }));
   g.appendChild(exportBtn("Zerodha tax P&L","Realized gains + dividends → Tax",function(){ importTaxPnl(TAX_OWNER); }));
-  g.appendChild(exportBtn("Zerodha holdings","Excel holdings → Investments",function(){ importZerodha(); }));
+  g.appendChild(exportBtn("Zerodha holdings","Excel, or DP holding statement PDF",function(){ importZerodha(); }));
   g.appendChild(exportBtn("Find duplicates","Clean up doubled entries",findDuplicates));
   g.appendChild(exportBtn("Auto-categorisation rules",State.rules.length+" rule"+(State.rules.length===1?"":"s"),rulesManager));
   g.appendChild(exportBtn("Sync between devices","Drive · nearby · file",function(){ route("sync"); }));
@@ -4211,6 +4500,7 @@ function renderImport(v){
   var L=el("div","list");
   for(var i=0;i<State.importBatches.length;i++){ (function(b){
     var live=batchEntries(b.id);
+    if(b.kind==="holdings"){ L.appendChild(listRow({ icon:"\u25B2", title:b.file, sub:"Holdings as on "+fmtDate(b.to)+" \u00B7 "+b.count+" updated/added", amount:"Zerodha", menu:function(){ rowMenu([{ label:"\u21BA  Undo this import", danger:true, fn:function(){ undoBatch(b.id); } }]); } })); return; }
     L.appendChild(listRow({ icon:"⇩", title:b.file, sub:nameOf(State.accounts,b.accountId)+" · "+fmtDate(b.from)+" → "+fmtDate(b.to)+" · "+live+" of "+b.count+" entries"+(b.created?(" · "+fmtDate(String(b.created).slice(0,10))):""),
       amount:(BANK_NAMES[b.bank]||""), menu:function(){ rowMenu([{ label:"↺  Undo this import", danger:true, fn:function(){ undoBatch(b.id); } }]); } }));
   })(State.importBatches[i]); }
