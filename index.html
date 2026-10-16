@@ -2718,7 +2718,7 @@ function parseDpHoldings(pages){
   return { asOf:asOf, rows:out };
 }
 /* "HDFC BANK-EQ1/-" and "HDFCBANK" -> "HDFCBANK" */
-function holdingKey(n){ return String(n||"").toUpperCase().replace(/\(.*?\)/g,"").replace(/-?\s*EQ(TY)?\b.*$/,"").replace(/\b(LTD|LIMITED)\b/g,"").replace(/[^A-Z0-9]/g,""); }
+function holdingKey(n){ return String(n||"").toUpperCase().replace(/\(.*?\)/g,"").replace(/\s*-\s*EQ.*$/,"").replace(/\s+EQ\b.*$/,"").replace(/-\s*(RS\.?\s*)?\d+\/-?$/,"").replace(/\b(LTD|LIMITED)\b/g,"").replace(/[^A-Z0-9]/g,""); }
 function matchHolding(h){
   var i, iv, k=holdingKey(h.name);
   for(i=0;i<State.investments.length;i++){ iv=State.investments[i]; if(iv.isin && iv.isin===h.isin) return iv.id; }
